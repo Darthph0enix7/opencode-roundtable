@@ -5,6 +5,7 @@ import type { PluginInput, PluginOptions } from "@opencode-ai/plugin";
 // ── Config ──────────────────────────────────────────────────────────────────
 
 export interface RoundtableConfig {
+  mode: "standard" | "light" | "heavy";
   maxRounds: number;
   consensusThreshold: number;
   qualityThreshold: number;
@@ -23,6 +24,7 @@ export interface RoundtableConfig {
 }
 
 export const DEFAULT_CONFIG: RoundtableConfig = {
+  mode: "standard",
   maxRounds: 5,
   consensusThreshold: 0.85,
   qualityThreshold: 0.80,
@@ -40,12 +42,49 @@ export const DEFAULT_CONFIG: RoundtableConfig = {
   debug: false,
 };
 
-/** Merge plugin options with defaults. PluginOptions = tuple arg [0] + extras. */
+/** Light mode: fast, cheap, relaxed. Good for quick gut-checks. */
+const LIGHT: Partial<RoundtableConfig> = {
+  maxRounds: 3,
+  consensusThreshold: 0.75,
+  qualityThreshold: 0.70,
+  perAgentTimeout: 60_000,
+  debaterMaxWords: 350,
+  debaterRetries: 1,
+  criticRetries: 0,
+};
+
+/** Heavy mode: deep, thorough, expensive. Good for architectural decisions. */
+const HEAVY: Partial<RoundtableConfig> = {
+  maxRounds: 7,
+  consensusThreshold: 0.90,
+  qualityThreshold: 0.85,
+  perAgentTimeout: 180_000,
+  debaterMaxWords: 700,
+  debaterRetries: 3,
+  criticRetries: 2,
+};
+
+const MODE_PRESETS: Record<string, Partial<RoundtableConfig>> = {
+  light: LIGHT,
+  heavy: HEAVY,
+};
+
+/** Merge plugin options with defaults, then apply mode preset. */
 export function loadConfig(raw?: PluginOptions): RoundtableConfig {
   const opts = (raw ?? {}) as Record<string, unknown>;
   const merged: RoundtableConfig = { ...DEFAULT_CONFIG };
   for (const key of Object.keys(DEFAULT_CONFIG) as (keyof RoundtableConfig)[]) {
     if (key in opts) (merged as Record<string, unknown>)[key] = opts[key];
+  }
+  // Apply mode preset on top (user values override preset, preset overrides defaults)
+  const preset = MODE_PRESETS[merged.mode];
+  if (preset) {
+    for (const key of Object.keys(preset) as (keyof RoundtableConfig)[]) {
+      // Only override if user didn't explicitly set this key
+      if (!(key in opts) && preset[key] !== undefined) {
+        (merged as Record<string, unknown>)[key] = preset[key];
+      }
+    }
   }
   return merged;
 }
