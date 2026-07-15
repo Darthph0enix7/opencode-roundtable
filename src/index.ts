@@ -80,41 +80,54 @@ async function server(input: PluginInput, options?: PluginOptions) {
     },
   };
 
+  // Build the agent map ONCE — expose at both Hooks level (so OpenChamber's
+  // Save Changes recognizes these agents as editable) AND in the config hook
+  // (so OMO slim's config merge picks them up).
+  const allAgents: Record<string, unknown> = {
+    roundtable: {
+      mode: "primary",
+      description: `Multi-agent roundtable debate orchestrator (${DEBATERS.map((d) => d.label).join(", ")} + Critic). Call the roundtable tool to start a debate.`,
+      prompt: ROUNDTABLE_AGENT_PROMPT,
+      color: "#7C3AED",
+      tools: { roundtable: true },
+    },
+  };
+  for (const def of DEBATERS) {
+    allAgents[def.name] = {
+      mode: "subagent",
+      description: def.epistemicRole,
+      prompt: debaterPrompts[def.name],
+      tools: debaterTools,
+    };
+  }
+  allAgents["roundtable-critic"] = {
+    mode: "subagent",
+    description: "Debate critic — scores consensus, decides continue/stop, synthesizes final report",
+    prompt: CRITIC_SYSTEM,
+    tools: criticTools,
+  };
+
   return {
+    // Expose `agent` at the Hooks top level — OpenChamber's Save Changes
+    // handler iterates over this map to know which agents are editable.
+    // (Matches the oh-my-opencode-slim pattern: returns `{ name, agent, ... }`.)
+    name: PLUGIN_ID,
+    agent: allAgents,
+
     tool: {
       roundtable: roundtableTool,
     },
 
     async config(cfg: Record<string, unknown>) {
       const agentConfig = (cfg.agent ?? {}) as Record<string, unknown>;
-
-      // Primary orchestrator agent — gets the roundtable tool + can spawn subagents
-      agentConfig["roundtable"] = {
-        mode: "primary",
-        description: `Multi-agent roundtable debate orchestrator (${DEBATERS.map((d) => d.label).join(", ")} + Critic). Call the roundtable tool to start a debate.`,
-        prompt: ROUNDTABLE_AGENT_PROMPT,
-        color: "#7C3AED",
-        tools: { roundtable: true },
-      };
-
-      // Debater subagents — each carries its own epistemic system prompt + research tools
-      for (const def of DEBATERS) {
-        agentConfig[def.name] = {
-          mode: "subagent",
-          description: def.epistemicRole,
-          prompt: debaterPrompts[def.name],
-          tools: debaterTools,
+      // Merge our registered agents — existing user-defined models take priority.
+      for (const [name, fullConfig] of Object.entries(allAgents)) {
+        const existing = agentConfig[name];
+        agentConfig[name] = {
+          ...(fullConfig as Record<string, unknown>),
+          ...(existing as Record<string, unknown> ?? {}),
         };
       }
-
-      // Critic / chair subagent — judges consensus and synthesizes the final report
-      agentConfig["roundtable-critic"] = {
-        mode: "subagent",
-        description: "Debate critic — scores consensus, decides continue/stop, synthesizes final report",
-        prompt: CRITIC_SYSTEM,
-        tools: criticTools,
-      };
-
       cfg.agent = agentConfig;
     },
   };
