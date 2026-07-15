@@ -6,8 +6,12 @@
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
+    "./server": "./dist/index.js",
     "./package.json": "./package.json"
   },
+  "oc-plugin": [
+    "server"
+  ],
   "files": [
     "dist/"
   ],
