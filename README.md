@@ -182,6 +182,10 @@ Critic scores again → loop until STOP
 Critic synthesizes final report (5 sections)
 ```
 
+## Universal Auto-Updater
+
+The plugin includes a **zero-configuration background auto-updater**. When OpenCode boots, it silently checks the npm registry for a newer version. If an update is found, it uses OpenCode's native CLI (`opencode plugin <name> -f`) to update the cache in the background and sends a toast notification to restart. You never have to manually clear OpenCode's plugin cache.
+
 ## Output format
 
 ```
