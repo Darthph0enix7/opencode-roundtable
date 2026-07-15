@@ -22,14 +22,27 @@ import { handleRoundtable } from "./roundtable.js";
 import { z } from "zod";
 
 /// Tool permissions for debate-research agents.
-/// Read-only by design. NO write/edit/bash (debate is research-only).
-/// `task` lets them delegate to omo's @explorer / @librarian subagents.
+///
+/// PERMISSION TRADE-OFF: OpenCode's `bash`, `write`, and `edit` tools
+/// trigger permission prompts on every invocation — this would break
+/// the "fire-and-forget debate" UX. They're disabled by default.
+///
+/// The research surface is `read` + `glob` + `grep` + `webfetch` +
+/// `websearch` + `task` (subagent delegation). These do NOT trigger
+/// permission prompts.
+///
+/// If you want bash/write/edit for specific debates, set
+/// `enableDebaterTools` and the corresponding agents will inherit
+/// your session's permission policy. Per-call reasoning for research
+/// (webfetch, websearch) is always enabled regardless.
 const RESEARCH_TOOLS = {
-  read: true,        // read files
-  glob: true,        // find files by pattern
-  grep: true,        // search code text
-  webfetch: true,    // fetch external docs
-  task: true,        // delegate to subagents (@explorer, @librarian)
+  read: true,        // read files — no permission prompt
+  glob: true,        // find files by pattern — no permission prompt
+  grep: true,        // search code text — no permission prompt
+  webfetch: true,    // fetch any URL — no permission prompt (HTTP GET)
+  websearch: true,   // run web search (no-op if not installed)
+  task: true,        // delegate to subagents — no permission prompt
+  // Explicitly disabled — these trigger permission prompts
   write: false,
   edit: false,
   bash: false,

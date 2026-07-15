@@ -146,15 +146,17 @@ Each subagent has a detailed system prompt in the agent config explaining their 
 
 By default, all three debaters and the critic get **read-only research tools**:
 
-| Tool | Purpose |
-|------|---------|
-| `read` | read project files (verify claims against actual code) |
-| `glob` | find files by pattern |
-| `grep` | search code text |
-| `webfetch` | fetch external docs |
-| `task` | delegate to `@explorer` (omo code recon) or `@librarian` (omo external knowledge) |
+| Tool | Purpose | Permission prompt? |
+|------|---------|:------------------:|
+| `read` | read project files (verify claims against actual code) | ❌ |
+| `glob` | find files by pattern | ❌ |
+| `grep` | search code text | ❌ |
+| `webfetch` | fetch any URL (external docs, pricing pages, prior incidents) | ❌ |
+| `websearch` | run web search (no-op if not installed) | ❌ |
+| `task` | delegate to other installed subagents for deeper research | ❌ |
+| `write`, `edit`, `bash` | **disabled by default** — would trigger permission prompts | — |
 
-**No one** gets `write`, `edit`, or `bash` — the debate is research-only by design.
+**The permission-prompt tradeoff:** `bash`, `write`, `edit` are intentionally disabled. In OpenCode, these trigger a permission prompt on every invocation, which would break the fire-and-forget debate UX (you'd come back to a debate waiting for 5+ approval clicks). The research surface is read-only — it can still verify claims, fetch docs, run web searches, and delegate to subagents for deeper investigation, all without permission prompts.
 
 System prompts explicitly tell each agent to use these tools early ("a skeptical position backed by file paths and citations is unanswerable"). Disable per agent by setting `enableDebaterTools: false` or `enableCriticTools: false` in plugin options.
 
