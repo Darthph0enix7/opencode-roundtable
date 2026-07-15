@@ -10,7 +10,7 @@
 
 import type { PluginInput, PluginOptions, ToolDefinition } from "@opencode-ai/plugin";
 import type { OpencodeClient } from "@opencode-ai/sdk";
-import { loadConfig, DEBATERS, PLUGIN_ID } from "./types.js";
+import { loadConfig, DEBATERS, PLUGIN_ID, type RoundtableConfig } from "./types.js";
 import {
   ROUNDTABLE_AGENT_PROMPT,
   SKEPTIC_SYSTEM,
@@ -20,6 +20,22 @@ import {
 } from "./prompts.js";
 import { handleRoundtable } from "./roundtable.js";
 import { z } from "zod";
+
+/// Tool permissions for debate-research agents.
+/// Read-only by design. NO write/edit/bash (debate is research-only).
+/// `task` lets them delegate to omo's @explorer / @librarian subagents.
+const RESEARCH_TOOLS = {
+  read: true,        // read files
+  glob: true,        // find files by pattern
+  grep: true,        // search code text
+  webfetch: true,    // fetch external docs
+  task: true,        // delegate to subagents (@explorer, @librarian)
+  write: false,
+  edit: false,
+  bash: false,
+  todowrite: false,
+  todoread: false,
+};
 
 async function server(input: PluginInput, options?: PluginOptions) {
   const client: OpencodeClient = input.client;
@@ -31,6 +47,9 @@ async function server(input: PluginInput, options?: PluginOptions) {
     "roundtable-pragmatist": PRAGMATIST_SYSTEM,
     "roundtable-architect":  ARCHITECT_SYSTEM,
   };
+
+  const debaterTools = config.enableDebaterTools ? RESEARCH_TOOLS : { task: false };
+  const criticTools  = config.enableCriticTools  ? RESEARCH_TOOLS : { task: false };
 
   const roundtableTool: ToolDefinition = {
     description: `Run a multi-agent roundtable debate on a question. Spawns ${DEBATERS.length} debaters (${DEBATERS.map((d) => d.label).join(", ")}) across multiple rounds with cross-examination and consensus scoring. Returns a synthesized council report with dissents and a model-usage footer.`,
@@ -56,7 +75,7 @@ async function server(input: PluginInput, options?: PluginOptions) {
     async config(cfg: Record<string, unknown>) {
       const agentConfig = (cfg.agent ?? {}) as Record<string, unknown>;
 
-      // Primary orchestrator agent
+      // Primary orchestrator agent — gets the roundtable tool + can spawn subagents
       agentConfig["roundtable"] = {
         mode: "primary",
         description: `Multi-agent roundtable debate orchestrator (${DEBATERS.map((d) => d.label).join(", ")} + Critic). Call the roundtable tool to start a debate.`,
@@ -65,12 +84,13 @@ async function server(input: PluginInput, options?: PluginOptions) {
         tools: { roundtable: true },
       };
 
-      // Debater subagents — each carries its own epistemic system prompt
+      // Debater subagents — each carries its own epistemic system prompt + research tools
       for (const def of DEBATERS) {
         agentConfig[def.name] = {
           mode: "subagent",
           description: def.epistemicRole,
           prompt: debaterPrompts[def.name],
+          tools: debaterTools,
         };
       }
 
@@ -79,6 +99,7 @@ async function server(input: PluginInput, options?: PluginOptions) {
         mode: "subagent",
         description: "Debate critic — scores consensus, decides continue/stop, synthesizes final report",
         prompt: CRITIC_SYSTEM,
+        tools: criticTools,
       };
 
       cfg.agent = agentConfig;

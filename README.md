@@ -112,6 +112,8 @@ User-explicit values override mode-preset values, which override defaults.
 | `debaterModel` | string \| null | `null` | Override debaters' model (else inherits session default) |
 | `debaterRetries` | number | 2 / 1 / 3 | Retry count for failed debater invocations |
 | `criticRetries` | number | 1 / 0 / 2 | Retry count for failed critic invocations |
+| `enableDebaterTools` | boolean | `true` | Give debaters read-only research tools (read/glob/grep/webfetch/task) |
+| `enableCriticTools` | boolean | `true` | Give critic read-only research tools (same) |
 | `debug` | boolean | false | Include per-round scores + full state JSON in output |
 
 ### Per-call overrides (tool args)
@@ -139,6 +141,22 @@ All other parameters inherit from plugin config.
 | `roundtable-critic` | subagent | **Judge + synthesizer** — scores consensus, decides continue/stop, writes final report | inherits |
 
 Each subagent has a detailed system prompt in the agent config explaining their epistemic position, what state they represent, and behavioral rules. Models are assignable per agent via OpenChamber settings.
+
+### Tool access (research-by-default)
+
+By default, all three debaters and the critic get **read-only research tools**:
+
+| Tool | Purpose |
+|------|---------|
+| `read` | read project files (verify claims against actual code) |
+| `glob` | find files by pattern |
+| `grep` | search code text |
+| `webfetch` | fetch external docs |
+| `task` | delegate to `@explorer` (omo code recon) or `@librarian` (omo external knowledge) |
+
+**No one** gets `write`, `edit`, or `bash` — the debate is research-only by design.
+
+System prompts explicitly tell each agent to use these tools early ("a skeptical position backed by file paths and citations is unanswerable"). Disable per agent by setting `enableDebaterTools: false` or `enableCriticTools: false` in plugin options.
 
 ## How a debate runs
 

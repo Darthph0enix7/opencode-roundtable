@@ -20,6 +20,11 @@ export interface RoundtableConfig {
   debaterModel: string | null;
   debaterRetries: number;
   criticRetries: number;
+  /// When true (default), debaters get read-only research tools: read, glob, grep, webfetch, task.
+  /// task lets them delegate to omo's @explorer (code recon) and @librarian (external docs).
+  enableDebaterTools: boolean;
+  /// When true (default), critic gets the same read-only tools for cross-checking claims.
+  enableCriticTools: boolean;
   debug: boolean;
 }
 
@@ -39,6 +44,8 @@ export const DEFAULT_CONFIG: RoundtableConfig = {
   debaterModel: null,
   debaterRetries: 2,
   criticRetries: 1,
+  enableDebaterTools: true,
+  enableCriticTools: true,
   debug: false,
 };
 
