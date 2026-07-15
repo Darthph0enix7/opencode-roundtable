@@ -1,10 +1,13 @@
-// opencode-roundtable — Critic agent: scoring, consensus, synthetic evaluation
+// opencode-roundtable — Critic agent: scoring, consensus, synthesis
+//
+// The critic's system prompt (CRITIC_SYSTEM) is set in the agent config.
+// We only send the per-round / per-final task as a user message.
 
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import type { RoundtableConfig, DebaterResponse, CriticOutput } from "./types.js";
 import {
-  CRITIC_SCORING,
-  CRITIC_SYNTHESIS,
+  CRITIC_SCORING_PROMPT,
+  CRITIC_SYNTHESIS_PROMPT,
   modelFooter,
 } from "./prompts.js";
 
@@ -30,7 +33,7 @@ export async function scoreRound(
     .map(r => `### ${r.label} (${r.error ? `⚠️ FAILED: ${r.error}` : "responded"})\n${r.text}`)
     .join("\n\n");
 
-  const prompt = CRITIC_SCORING
+  const prompt = CRITIC_SCORING_PROMPT
     .replaceAll("{{query}}", query)
     .replaceAll("{{round}}", String(round))
     .replaceAll("{{maxRounds}}", String(maxRounds))
@@ -38,15 +41,15 @@ export async function scoreRound(
     .replaceAll("{{roundTranscript}}", transcript);
 
   // Attempt 1: call critic normally
-  const output = await callCritic(client, config, prompt, directory);
+  let output = await callCritic(client, config, prompt, directory);
   if (output) return output;
 
-  // Attempt 2: retry with explicit format reminder
-  const retryPrompt = `Your previous output was not valid JSON. ${prompt}\n\nREMINDER: Output ONLY valid JSON. No markdown fences.`;
-  const retryOutput = await callCritic(client, config, retryPrompt, directory);
-  if (retryOutput) return retryOutput;
+  // Attempt 2: retry with explicit format reminder (low-friction formatting hint)
+  const retryPrompt = `${prompt}\n\n---\nREMINDER: Respond with VALID JSON ONLY. No markdown fences, no prose. Schema: { "consensusScore": number, "qualityScore": number, "continueDecision": "STOP" | "CONTINUE", "reasonIfStop": string | null, "runningBrief": string }`;
+  output = await callCritic(client, config, retryPrompt, directory);
+  if (output) return output;
 
-  // All attempts exhausted — fall back to heuristics
+  // Fall back to heuristic
   return heuristicScore(ctx);
 }
 
@@ -66,7 +69,7 @@ async function callCritic(
     const promptResult = await client.session.prompt({
       path: { id: sessionId },
       body: {
-        agent: "roundtable-critic",
+        agent: "roundtable-critic",  // OpenCode uses the agent's prompt as system message
         parts: [{ type: "text", text: prompt }],
       },
     });
@@ -74,7 +77,6 @@ async function callCritic(
     await client.session.delete({ path: { id: sessionId } }).catch(() => {});
 
     if (promptResult.error) return null;
-
     if (promptResult.data.info.error) return null;
 
     const text = promptResult.data.parts
@@ -143,7 +145,7 @@ export async function synthesize(
   config: RoundtableConfig,
   ctx: SynthesisContext,
 ): Promise<string> {
-  const prompt = CRITIC_SYNTHESIS
+  const prompt = CRITIC_SYNTHESIS_PROMPT
     .replaceAll("{{stopReason}}", ctx.stopReason)
     .replaceAll("{{roundsRun}}", String(ctx.roundsRun))
     .replaceAll("{{finalConsensus}}", String(ctx.finalConsensus))

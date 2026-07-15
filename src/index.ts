@@ -3,25 +3,37 @@
 // Exports { id, server } matching @opencode-ai/plugin PluginModule contract.
 // Verified against magic-context v0.32.0 and SDK types from
 // @opencode-ai/plugin/dist/index.d.ts.
+//
+// Agent registration: each role-specific system prompt is set as the agent's
+// `prompt` field. OpenCode prepends it as the actual `system` message at
+// inference time. Runtime spawning only sends round-specific user messages.
 
 import type { PluginInput, PluginOptions, ToolDefinition } from "@opencode-ai/plugin";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { loadConfig, DEBATERS, PLUGIN_ID } from "./types.js";
-import { ROUNDTABLE_AGENT_PROMPT } from "./prompts.js";
+import {
+  ROUNDTABLE_AGENT_PROMPT,
+  SKEPTIC_SYSTEM,
+  PRAGMATIST_SYSTEM,
+  ARCHITECT_SYSTEM,
+  CRITIC_SYSTEM,
+} from "./prompts.js";
 import { handleRoundtable } from "./roundtable.js";
 import { z } from "zod";
-
-// ── Plugin server function ──────────────────────────────────────────────────
 
 async function server(input: PluginInput, options?: PluginOptions) {
   const client: OpencodeClient = input.client;
   const config = loadConfig(options);
   const directory = input.directory;
-  process.stderr.write(`[roundtable] server called  directory=${directory}\n`);
 
-  // ── Roundtable tool ────────────────────────────────────────────────────
+  const debaterPrompts: Record<string, string> = {
+    "roundtable-skeptic":    SKEPTIC_SYSTEM,
+    "roundtable-pragmatist": PRAGMATIST_SYSTEM,
+    "roundtable-architect":  ARCHITECT_SYSTEM,
+  };
+
   const roundtableTool: ToolDefinition = {
-    description: `Run a multi-agent roundtable debate on a question. Spawns ${DEBATERS.length} debaters (${DEBATERS.map((d) => d.label).join(", ")}) across multiple rounds with cross-examination and consensus scoring. Returns a synthesized council report with dissents and model-usage footer.`,
+    description: `Run a multi-agent roundtable debate on a question. Spawns ${DEBATERS.length} debaters (${DEBATERS.map((d) => d.label).join(", ")}) across multiple rounds with cross-examination and consensus scoring. Returns a synthesized council report with dissents and a model-usage footer.`,
     args: {
       query: z.string().describe("The question or topic to debate"),
       maxRounds: z.number().optional().describe(`Maximum debate rounds (default: ${config.maxRounds})`),
@@ -36,42 +48,43 @@ async function server(input: PluginInput, options?: PluginOptions) {
     },
   };
 
-  // ── Hooks ───────────────────────────────────────────────────────────────
   return {
     tool: {
       roundtable: roundtableTool,
     },
 
     async config(cfg: Record<string, unknown>) {
-      process.stderr.write(`[roundtable] config hook entered  agent_keys=${JSON.stringify(Object.keys((cfg as any).agent ?? {}))}\n`);
       const agentConfig = (cfg.agent ?? {}) as Record<string, unknown>;
+
+      // Primary orchestrator agent
       agentConfig["roundtable"] = {
         mode: "primary",
-        description: `Multi-agent roundtable debate orchestrator (${DEBATERS.map((d) => d.label).join(", ")} + Critic)`,
+        description: `Multi-agent roundtable debate orchestrator (${DEBATERS.map((d) => d.label).join(", ")} + Critic). Call the roundtable tool to start a debate.`,
         prompt: ROUNDTABLE_AGENT_PROMPT,
         color: "#7C3AED",
         tools: { roundtable: true },
       };
 
+      // Debater subagents — each carries its own epistemic system prompt
       for (const def of DEBATERS) {
         agentConfig[def.name] = {
           mode: "subagent",
-          description: `${def.label} — ${def.epistemicRole}`,
+          description: def.epistemicRole,
+          prompt: debaterPrompts[def.name],
         };
       }
 
+      // Critic / chair subagent — judges consensus and synthesizes the final report
       agentConfig["roundtable-critic"] = {
         mode: "subagent",
         description: "Debate critic — scores consensus, decides continue/stop, synthesizes final report",
+        prompt: CRITIC_SYSTEM,
       };
 
       cfg.agent = agentConfig;
-      process.stderr.write(`[roundtable] config hook exiting  agent_keys=${JSON.stringify(Object.keys(cfg.agent as Record<string, unknown>))}\n`);
     },
   };
 }
-
-// ── Plugin module export (v2 contract) ─────────────────────────────────────
 
 const pluginModule = {
   id: PLUGIN_ID,
