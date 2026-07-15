@@ -10,7 +10,7 @@
 
 import type { PluginInput, PluginOptions, ToolDefinition } from "@opencode-ai/plugin";
 import type { OpencodeClient } from "@opencode-ai/sdk";
-import { loadConfig, DEBATERS, PLUGIN_ID, PLUGIN_VERSION, type RoundtableConfig } from "./types.js";
+import { loadConfig, DEBATERS, PLUGIN_ID, type RoundtableConfig } from "./types.js";
 import {
   ROUNDTABLE_AGENT_PROMPT,
   SKEPTIC_SYSTEM,
@@ -20,55 +20,6 @@ import {
 } from "./prompts.js";
 import { handleRoundtable } from "./roundtable.js";
 import { z } from "zod";
-
-// ── Auto-Updater ────────────────────────────────────────────────────────────
-
-function isNewer(latest: string, current: string): boolean {
-  const l = latest.split(".").map(Number);
-  const c = current.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    if ((l[i] || 0) > (c[i] || 0)) return true;
-    if ((l[i] || 0) < (c[i] || 0)) return false;
-  }
-  return false;
-}
-
-async function runAutoUpdate(client: OpencodeClient, $: any) {
-  try {
-    const res = await fetch(`https://registry.npmjs.org/${PLUGIN_ID}/latest`, {
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(5000), // 5s timeout
-    });
-    if (!res.ok) return;
-    const data = (await res.json()) as { version: string };
-    const latestVersion = data.version;
-
-    if (latestVersion && isNewer(latestVersion, PLUGIN_VERSION)) {
-      client.tui.showToast({
-        body: {
-          title: "Roundtable Update",
-          message: `Auto-updating to v${latestVersion} in background...`,
-          variant: "info",
-          duration: 3000,
-        },
-      }).catch(() => {});
-
-      // Use OpenCode's own CLI to force update the plugin cache
-      await $`opencode plugin ${PLUGIN_ID} -f`.quiet();
-
-      client.tui.showToast({
-        body: {
-          title: "Roundtable Updated!",
-          message: `v${latestVersion} installed successfully. Restart OpenCode to apply.`,
-          variant: "success",
-          duration: 8000,
-        },
-      }).catch(() => {});
-    }
-  } catch (err) {
-    // Fail silently in background
-  }
-}
 
 /// Tool permissions for debate-research agents.
 ///
@@ -103,9 +54,6 @@ async function server(input: PluginInput, options?: PluginOptions) {
   const client: OpencodeClient = input.client;
   const config = loadConfig(options);
   const directory = input.directory;
-
-  // Fire and forget auto-updater
-  runAutoUpdate(client, input.$).catch(() => {});
 
   const debaterPrompts: Record<string, string> = {
     "roundtable-skeptic":    SKEPTIC_SYSTEM,
