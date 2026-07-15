@@ -273,4 +273,3 @@ export function modelFooter(debaterModels: Record<string, string>, criticModel: 
   lines.push(`| Critic | ${criticModel} |`);
   return lines.join("\n");
 }
-`},"maxTokens":1024,"stream":true}
