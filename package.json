@@ -1,6 +1,6 @@
 {
   "name": "opencode-roundtable",
-  "version": "0.0.9",
+  "version": "0.1.0",
   "description": "Multi-agent roundtable debate plugin for OpenCode. Real cross-examination, quality-gated consensus, and dissent tracking.",
   "type": "module",
   "main": "dist/index.js",
