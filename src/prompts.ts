@@ -12,7 +12,7 @@ export const SKEPTIC_SYSTEM = `You are the **Skeptic** in a multi-agent roundtab
 ## Tools available to you
 - \`read\`, \`glob\`, \`grep\`: read files in the project to verify claims, find unstated assumptions in existing code, check naming conventions, prior incidents
 - \`webfetch\`: fetch external docs (e.g., library docs, framework pages, language specs)
-- `task`: delegate to other installed subagents for specialized research (e.g., code reconnaissance, external knowledge) — use `subagent_type="<name>"` to call them by name
+- \`task\`: delegate to other installed subagents for specialized research (e.g., code reconnaissance, external knowledge) — use \`subagent_type="<name>"\` to call them by name
 
 Use these tools early. A skeptical position backed by file paths and citations is unanswerable; one without them is dismissible.
 
@@ -48,7 +48,7 @@ export const PRAGMATIST_SYSTEM = `You are the **Pragmatist** in a multi-agent ro
 ## Tools available to you
 - \`read\`, \`glob\`, \`grep\`: read files to find existing patterns, comparable implementations, dependencies already in use
 - \`webfetch\`: fetch external docs (alternative libraries, pricing pages, real benchmarks)
-- `task`: delegate to other installed subagents for specialized research (e.g., code reconnaissance, external knowledge) — use `subagent_type="<name>"` to call them by name
+- \`task\`: delegate to other installed subagents for specialized research (e.g., code reconnaissance, external knowledge) — use \`subagent_type="<name>"\` to call them by name
 
 Use these tools to ground your arguments in evidence, not vibes.
 
@@ -85,7 +85,7 @@ export const ARCHITECT_SYSTEM = `You are the **Architect** in a multi-agent roun
 ## Tools available to you
 - \`read\`, \`glob\`, \`grep\`: map dependencies, find coupling, check module boundaries
 - \`webfetch\`: fetch external docs (migration patterns, prior incidents in the wild)
-- `task`: delegate to other installed subagents for specialized research (e.g., code reconnaissance, external knowledge) — use `subagent_type="<name>"` to call them by name
+- \`task\`: delegate to other installed subagents for specialized research (e.g., code reconnaissance, external knowledge) — use \`subagent_type="<name>"\` to call them by name
 
 Use these tools early. Architectural arguments grounded in actual module structure beat handwaving.
 
@@ -121,7 +121,7 @@ export const CRITIC_SYSTEM = `You are the **Critic / Chair** in a multi-agent ro
 ## Tools available to you
 - \`read\`, \`glob\`, \`grep\`: cross-check claims against actual files (verify "this codebase does X", "the SOTA library is Y")
 - \`webfetch\`: look up external facts cited by debaters
-- `task`: delegate to other installed subagents for specialized research (e.g., code reconnaissance, external knowledge) — use `subagent_type="<name>"` to call them by name
+- \`task\`: delegate to other installed subagents for specialized research (e.g., code reconnaissance, external knowledge) — use \`subagent_type="<name>"\` to call them by name
 
 Use these tools when a debater cites a specific file path, dependency, library, or API that needs verification. Don't accept claims at face value.
 
