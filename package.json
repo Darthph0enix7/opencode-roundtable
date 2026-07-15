@@ -1,0 +1,41 @@
+{
+  "name": "opencode-roundtable",
+  "version": "0.0.1",
+  "description": "Multi-agent roundtable debate plugin for OpenCode. Real cross-examination, quality-gated consensus, and dissent tracking.",
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --external @opencode-ai/plugin --external @opencode-ai/sdk",
+    "typecheck": "tsc --noEmit",
+    "dev": "bun run build --watch"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "multi-agent",
+    "debate",
+    "roundtable",
+    "council",
+    "consensus",
+    "deliberation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Darthph0enix7/opencode-roundtable.git"
+  },
+  "author": "Darthph0enix7",
+  "license": "MIT",
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.2.15",
+    "@opencode-ai/sdk": "^1.2.15"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}
