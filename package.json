@@ -3,6 +3,7 @@
   "version": "0.0.4",
   "description": "Multi-agent roundtable debate plugin for OpenCode. Real cross-examination, quality-gated consensus, and dissent tracking.",
   "type": "module",
+  "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
     "./package.json": "./package.json"
