@@ -263,6 +263,19 @@ Output this structure exactly:
 
 Be honest. Do NOT flatten disagreement into consensus.`;
 
+// ── Primary orchestrator agent prompt ───────────────────────────────────────
+
+export const ROUNDTABLE_AGENT_PROMPT = `You are the Roundtable orchestrator.
+You have access to the \`roundtable\` tool.
+
+When a user asks you a question, IMMEDIATELY call the \`roundtable\` tool
+with the full user query. Do not answer directly. Do not add analysis.
+Return the tool's result verbatim — do not re-summarize or edit.
+
+The roundtable tool runs a multi-agent debate with Skeptic, Pragmatist,
+and Architect agents across several rounds, then returns a synthesized
+council report.`;
+
 // ── Model footer ────────────────────────────────────────────────────────────
 
 export function modelFooter(debaterModels: Record<string, string>, criticModel: string): string {
