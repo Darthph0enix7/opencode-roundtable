@@ -37,19 +37,16 @@ export async function scoreRound(
     .replaceAll("{{consensusHistory}}", JSON.stringify(consensusHistory))
     .replaceAll("{{roundTranscript}}", transcript);
 
-  for (let attempt = 0; attempt <= config.criticRetries; attempt++) {
-    try {
-      const output = await callCritic(client, config, prompt, directory);
-      if (output) return output;
-      const retryPrompt = `Your previous output was not valid JSON. ${prompt}\n\nREMINDER: Output ONLY valid JSON. No markdown fences.`;
-      const retryOutput = await callCritic(client, config, retryPrompt, directory);
-      if (retryOutput) return retryOutput;
-    } catch {
-      // Fall through to heuristic
-    }
-    break;
-  }
+  // Attempt 1: call critic normally
+  const output = await callCritic(client, config, prompt, directory);
+  if (output) return output;
 
+  // Attempt 2: retry with explicit format reminder
+  const retryPrompt = `Your previous output was not valid JSON. ${prompt}\n\nREMINDER: Output ONLY valid JSON. No markdown fences.`;
+  const retryOutput = await callCritic(client, config, retryPrompt, directory);
+  if (retryOutput) return retryOutput;
+
+  // All attempts exhausted — fall back to heuristics
   return heuristicScore(ctx);
 }
 
@@ -77,6 +74,8 @@ async function callCritic(
     await client.session.delete({ path: { id: sessionId } }).catch(() => {});
 
     if (promptResult.error) return null;
+
+    if (promptResult.data.info.error) return null;
 
     const text = promptResult.data.parts
       .filter((p: { type: string }) => p.type === "text")

@@ -42,7 +42,7 @@ export const DEFAULT_CONFIG: RoundtableConfig = {
 
 /** Merge plugin options with defaults. PluginOptions = tuple arg [0] + extras. */
 export function loadConfig(raw?: PluginOptions): RoundtableConfig {
-  const opts = (raw as Record<string, unknown>) ?? {};
+  const opts = (raw ?? {}) as Record<string, unknown>;
   const merged: RoundtableConfig = { ...DEFAULT_CONFIG };
   for (const key of Object.keys(DEFAULT_CONFIG) as (keyof RoundtableConfig)[]) {
     if (key in opts) (merged as Record<string, unknown>)[key] = opts[key];

@@ -64,7 +64,10 @@ export async function runLoop(
 
     // Stopping conditions
     const decision = evaluateStopping(state);
-    if (decision.stop) state.status = "completed";
+    if (decision.stop) {
+      state.status = "completed";
+      roundRecord.critic!.reasonIfStop = decision.reason;  // preserve machine-determined stop reason
+    }
 
     // Context pressure check
     const totalDebateTokens = state.rounds.reduce(

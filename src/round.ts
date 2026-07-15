@@ -122,12 +122,12 @@ export async function spawnDebater(
         .join("");
 
       const tokens = {
-        input:  info.usage?.input  ?? estimateTokens(effectivePrompt),
-        output: info.usage?.output ?? estimateTokens(text),
+        input:  info.tokens?.input  ?? estimateTokens(effectivePrompt),
+        output: info.tokens?.output ?? estimateTokens(text),
       };
 
       // Min-token check
-      if (tokens.output < 50) {
+      if (tokens.output < config.debaterMinTokens) {
         lastError = `response too short (${tokens.output} tokens)`;
         continue;
       }
