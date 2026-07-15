@@ -17,6 +17,7 @@ async function server(input: PluginInput, options?: PluginOptions) {
   const client: OpencodeClient = input.client;
   const config = loadConfig(options);
   const directory = input.directory;
+  process.stderr.write(`[roundtable] server called  directory=${directory}\n`);
 
   // ── Roundtable tool ────────────────────────────────────────────────────
   const roundtableTool: ToolDefinition = {
@@ -42,6 +43,7 @@ async function server(input: PluginInput, options?: PluginOptions) {
     },
 
     async config(cfg: Record<string, unknown>) {
+      process.stderr.write(`[roundtable] config hook entered  agent_keys=${JSON.stringify(Object.keys((cfg as any).agent ?? {}))}\n`);
       const agentConfig = (cfg.agent ?? {}) as Record<string, unknown>;
       agentConfig["roundtable"] = {
         mode: "primary",
@@ -64,6 +66,7 @@ async function server(input: PluginInput, options?: PluginOptions) {
       };
 
       cfg.agent = agentConfig;
+      process.stderr.write(`[roundtable] config hook exiting  agent_keys=${JSON.stringify(Object.keys(cfg.agent as Record<string, unknown>))}\n`);
     },
   };
 }
