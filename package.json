@@ -31,7 +31,7 @@
   },
   "author": "Darthph0enix7",
   "license": "MIT",
-  "dependencies": {
+  "peerDependencies": {
     "@opencode-ai/plugin": "^1.2.15",
     "@opencode-ai/sdk": "^1.2.15"
   },
