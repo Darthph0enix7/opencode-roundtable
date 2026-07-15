@@ -12,7 +12,6 @@ import type { PluginInput, PluginOptions, ToolDefinition } from "@opencode-ai/pl
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { loadConfig, DEBATERS, PLUGIN_ID, type RoundtableConfig } from "./types.js";
 import {
-  ROUNDTABLE_AGENT_PROMPT,
   SKEPTIC_SYSTEM,
   PRAGMATIST_SYSTEM,
   ARCHITECT_SYSTEM,
@@ -80,18 +79,9 @@ async function server(input: PluginInput, options?: PluginOptions) {
     },
   };
 
-  // Build the agent map ONCE — expose at both Hooks level (so OpenChamber's
-  // Save Changes recognizes these agents as editable) AND in the config hook
-  // (so OMO slim's config merge picks them up).
-  const allAgents: Record<string, unknown> = {
-    roundtable: {
-      mode: "primary",
-      description: `Multi-agent roundtable debate orchestrator (${DEBATERS.map((d) => d.label).join(", ")} + Critic). Call the roundtable tool to start a debate.`,
-      prompt: ROUNDTABLE_AGENT_PROMPT,
-      color: "#7C3AED",
-      tools: { roundtable: true },
-    },
-  };
+  // Subagents only — the orchestrator (via OMO) calls the `roundtable` tool directly.
+  // No primary agent needed.
+  const allAgents: Record<string, unknown> = {};
   for (const def of DEBATERS) {
     allAgents[def.name] = {
       mode: "subagent",

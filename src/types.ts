@@ -257,4 +257,4 @@ export function estimateTokens(text: string): number {
 
 /** Plugin metadata */
 export const PLUGIN_ID = "opencode-roundtable";
-export const PLUGIN_VERSION = "0.1.8";
+export const PLUGIN_VERSION = "0.1.9";
