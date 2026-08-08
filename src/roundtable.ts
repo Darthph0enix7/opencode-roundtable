@@ -6,7 +6,8 @@ import { runLoop, type LoopResult } from "./loop.js";
 
 export interface RoundtableArgs {
   query: string;
-  maxRounds?: number;
+  maxRounds?: number | null;
+  hideLimit?: boolean;
   debug?: boolean;
 }
 
@@ -18,6 +19,7 @@ export async function handleRoundtable(
 ): Promise<string> {
   const effectiveConfig: RoundtableConfig = { ...config };
   if (args.maxRounds !== undefined) effectiveConfig.maxRounds = args.maxRounds;
+  if (args.hideLimit !== undefined) effectiveConfig.hideRoundLimit = args.hideLimit;
   if (args.debug !== undefined) effectiveConfig.debug = args.debug;
 
   const startNote = `[roundtable] Running multi-agent debate on: "${args.query.slice(0, 100)}${args.query.length > 100 ? "…" : ""}"\n`;

@@ -5,8 +5,14 @@ import type { PluginInput, PluginOptions } from "@opencode-ai/plugin";
 // ── Config ──────────────────────────────────────────────────────────────────
 
 export interface RoundtableConfig {
-  mode: "standard" | "light" | "heavy";
-  maxRounds: number;
+  mode: "standard" | "light" | "heavy" | "free";
+  /** Machine-side round cap. null = unbounded except the hidden safety cap.
+   *  When hideRoundLimit is true (or maxRounds is null), agents NEVER learn
+   *  this number — it exists only for the machine's stopping logic. */
+  maxRounds: number | null;
+  /** When true, debaters + critic never see the round horizon ("Round X of Y").
+   *  maxRounds still acts as the hidden machine cap. */
+  hideRoundLimit: boolean;
   consensusThreshold: number;
   qualityThreshold: number;
   minImprovementDelta: number;
@@ -38,6 +44,7 @@ export interface RoundtableConfig {
 export const DEFAULT_CONFIG: RoundtableConfig = {
   mode: "standard",
   maxRounds: 5,
+  hideRoundLimit: false,
   consensusThreshold: 0.85,
   qualityThreshold: 0.80,
   minImprovementDelta: 0.05,
@@ -84,7 +91,20 @@ const HEAVY: Partial<RoundtableConfig> = {
 const MODE_PRESETS: Record<string, Partial<RoundtableConfig>> = {
   light: LIGHT,
   heavy: HEAVY,
+  /** Free mode: no announced limit, machine-only safety cap. */
+  free: {
+    maxRounds: null,
+    hideRoundLimit: true,
+    consensusThreshold: 0.85,
+    qualityThreshold: 0.80,
+  },
 };
+
+/**
+ * Hidden safety cap for unbounded debates (maxRounds: null).
+ * NEVER rendered into any prompt — machine-side termination only.
+ */
+export const SAFETY_CAP_ROUNDS = 12;
 
 /** Merge plugin options with defaults, then apply mode preset. */
 export function loadConfig(raw?: PluginOptions): RoundtableConfig {
@@ -200,8 +220,9 @@ export function evaluateStopping(state: DebateState): StopDecision {
   if (activeDebaterCount < 2)
     return { stop: true, reason: "insufficient_participants" };
 
-  // 5. Max rounds — simple check, no history needed
-  if (round >= cfg.maxRounds)
+  // 5. Max rounds — simple check, no history needed.
+  //    null = no machine cap here (loop.ts enforces the hidden SAFETY_CAP_ROUNDS).
+  if (cfg.maxRounds !== null && round >= cfg.maxRounds)
     return { stop: true, reason: "max_rounds" };
 
   // 1. Consensus threshold — needs 1+ entries
@@ -257,4 +278,4 @@ export function estimateTokens(text: string): number {
 
 /** Plugin metadata */
 export const PLUGIN_ID = "opencode-roundtable";
-export const PLUGIN_VERSION = "0.1.9";
+export const PLUGIN_VERSION = "0.2.0";

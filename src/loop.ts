@@ -2,7 +2,7 @@
 
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import type { RoundtableConfig, DebateState, RoundRecord } from "./types.js";
-import { createDebateState, DEBATERS, evaluateStopping, estimateTokens } from "./types.js";
+import { createDebateState, DEBATERS, evaluateStopping, estimateTokens, SAFETY_CAP_ROUNDS } from "./types.js";
 import { runRound } from "./round.js";
 import { scoreRound, synthesize } from "./critic.js";
 
@@ -51,7 +51,7 @@ export async function runLoop(
     const criticResult = await scoreRound(client, config, {
       query: state.query,
       round: state.round,
-      maxRounds: config.maxRounds,
+      maxRounds: config.maxRounds ?? SAFETY_CAP_ROUNDS,
       consensusHistory: state.consensusHistory,
       responses,
       directory,
@@ -67,6 +67,14 @@ export async function runLoop(
     if (decision.stop) {
       state.status = "completed";
       roundRecord.critic!.reasonIfStop = decision.reason;  // preserve machine-determined stop reason
+    }
+
+    // Hidden safety cap for unbounded debates (maxRounds: null).
+    // Machine-only — never rendered into any prompt. The final critic
+    // scoring above already ran honestly without knowing this cap.
+    if (config.maxRounds === null && state.round >= SAFETY_CAP_ROUNDS) {
+      state.status = "completed";
+      roundRecord.critic!.reasonIfStop = "max_rounds";
     }
 
     // Context pressure check

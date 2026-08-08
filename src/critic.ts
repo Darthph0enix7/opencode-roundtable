@@ -9,6 +9,7 @@ import {
   CRITIC_SCORING_PROMPT,
   CRITIC_SYNTHESIS_PROMPT,
   modelFooter,
+  roundHorizonParts,
 } from "./prompts.js";
 
 // ── Scoring round ───────────────────────────────────────────────────────────
@@ -33,10 +34,14 @@ export async function scoreRound(
     .map(r => `### ${r.label} (${r.error ? `⚠️ FAILED: ${r.error}` : "responded"})\n${r.text}`)
     .join("\n\n");
 
+  const { roundSuffix, noLimitNote } = roundHorizonParts(config);
+
   const prompt = CRITIC_SCORING_PROMPT
     .replaceAll("{{query}}", query)
     .replaceAll("{{round}}", String(round))
-    .replaceAll("{{maxRounds}}", String(maxRounds))
+    .replaceAll("{{roundSuffix}}", roundSuffix)
+    .replaceAll("{{noLimitNote}}", noLimitNote)
+    .replaceAll("{{maxRounds}}", config.maxRounds === null ? "" : String(config.maxRounds))
     .replaceAll("{{consensusHistory}}", JSON.stringify(consensusHistory))
     .replaceAll("{{roundTranscript}}", transcript);
 

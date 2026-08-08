@@ -10,6 +10,7 @@ import { DEBATERS, estimateTokens } from "./types.js";
 import {
   ROUND_1_DEBATER_INSTRUCTION,
   ROUND_N_DEBATER_INSTRUCTION,
+  roundHorizonParts,
 } from "./prompts.js";
 
 // ── Round context builder ───────────────────────────────────────────────────
@@ -43,12 +44,16 @@ export function buildDebaterPrompt(def: DebaterDef, ctx: RoundContext): string {
     .map(r => `### ${r.label} (${r.error ? `⚠️ FAILED: ${r.error}` : "responded"})\n${r.text}`)
     .join("\n\n");
 
+  const { roundSuffix, noLimitNote } = roundHorizonParts(config);
+
   return ROUND_N_DEBATER_INSTRUCTION
     .replaceAll("{{query}}", query)
+    .replaceAll("{{roundSuffix}}", roundSuffix)
+    .replaceAll("{{noLimitNote}}", noLimitNote)
     .replaceAll("{{runningBrief}}", runningBrief || "(none yet — this is the first cross-examination round)")
     .replaceAll("{{roundTranscript}}", transcript)
     .replaceAll("{{round}}", String(round))
-    .replaceAll("{{maxRounds}}", String(config.maxRounds));
+    .replaceAll("{{maxRounds}}", config.maxRounds === null ? "" : String(config.maxRounds));
 }
 
 // ── Spawn a single debater ──────────────────────────────────────────────────

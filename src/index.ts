@@ -16,6 +16,7 @@ import {
   PRAGMATIST_SYSTEM,
   ARCHITECT_SYSTEM,
   CRITIC_SYSTEM,
+  criticMaxRoundsRule,
 } from "./prompts.js";
 import { handleRoundtable } from "./roundtable.js";
 import { z } from "zod";
@@ -63,17 +64,25 @@ async function server(input: PluginInput, options?: PluginOptions) {
   const debaterTools = config.enableDebaterTools ? RESEARCH_TOOLS : { task: false };
   const criticTools  = config.enableCriticTools  ? RESEARCH_TOOLS : { task: false };
 
+  // Render the critic's system prompt with the correct round-limit rule.
+  const criticSystem = CRITIC_SYSTEM.replaceAll(
+    "{{maxRoundsRule}}",
+    criticMaxRoundsRule(config.hideRoundLimit === true || config.maxRounds === null),
+  );
+
   const roundtableTool: ToolDefinition = {
     description: `Run a multi-agent roundtable debate on a question. Spawns ${DEBATERS.length} debaters (${DEBATERS.map((d) => d.label).join(", ")}) across multiple rounds with cross-examination and consensus scoring. Returns a synthesized council report with dissents and a model-usage footer.`,
     args: {
       query: z.string().describe("The question or topic to debate"),
-      maxRounds: z.number().optional().describe(`Maximum debate rounds (default: ${config.maxRounds})`),
+      maxRounds: z.number().nullable().optional().describe(`Maximum debate rounds; null = unbounded (hidden safety cap). Default: ${config.maxRounds === null ? "null (unbounded)" : config.maxRounds}`),
+      hideLimit: z.boolean().optional().describe("Hide the round limit from all agents (anti-deadline-pacing); the machine still enforces maxRounds"),
       debug: z.boolean().optional().describe("Include full debate state in output"),
     },
     async execute(args: Record<string, unknown>, _context: unknown) {
       return handleRoundtable(client, config, {
         query: args.query as string,
-        maxRounds: args.maxRounds as number | undefined,
+        maxRounds: args.maxRounds as number | null | undefined,
+        hideLimit: args.hideLimit as boolean | undefined,
         debug: args.debug as boolean | undefined,
       }, directory);
     },
@@ -93,7 +102,7 @@ async function server(input: PluginInput, options?: PluginOptions) {
   allAgents["roundtable-critic"] = {
     mode: "subagent",
     description: "Debate critic — scores consensus, decides continue/stop, synthesizes final report",
-    prompt: CRITIC_SYSTEM,
+    prompt: criticSystem,
     tools: criticTools,
   };
 

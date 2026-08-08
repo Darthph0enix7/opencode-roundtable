@@ -164,7 +164,7 @@ ContinueDecision triggers (all of these cause STOP):
 - quality ≥ 0.80 AND consensus not improving → "quality sufficient"
 - consensus *decreasing* by ≥ 0.10 → "positions diverging"
 - 2+ rounds of negligible delta → "no further improvement"
-- max rounds hit → "max rounds reached"
+- {{maxRoundsRule}}
 
 The runningBrief becomes the debaters' context next round (3–5 bullets, ≤200 words: key concessions made, points resolved, open disputes).
 
@@ -215,8 +215,8 @@ Do not address the other debaters in this round — you have not seen their resp
 
 export const ROUND_N_DEBATER_INSTRUCTION = `Your question: {{query}}
 
-This is **Round {{round}}** of {{maxRounds}}.
-
+This is **Round {{round}}**{{roundSuffix}}.
+{{noLimitNote}}
 **Critic's running brief (summary of the debate so far):**
 {{runningBrief}}
 
@@ -236,7 +236,8 @@ Your job this round:
 export const CRITIC_SCORING_PROMPT = `Score this debate round.
 
 User question: {{query}}
-Round {{round}} of {{maxRounds}}
+Round {{round}}{{roundSuffix}}.
+{{noLimitNote}}
 Consensus history so far: {{consensusHistory}}
 
 Round transcript:
@@ -313,4 +314,35 @@ export function modelFooter(debaterModels: Record<string, string>, criticModel: 
   }
   lines.push(`| Critic | ${criticModel} |`);
   return lines.join("\n");
+}
+
+// ── Round-horizon rendering (hidden-limit support) ──────────────────────────
+
+import type { RoundtableConfig } from "./types.js";
+
+/**
+ * Compute the two horizon fragments for prompts:
+ * - roundSuffix: " of 5" when the limit is announced, "" when hidden
+ * - noLimitNote: an anti-pacing line when hidden, "" otherwise
+ */
+export function roundHorizonParts(config: RoundtableConfig): {
+  roundSuffix: string;
+  noLimitNote: string;
+} {
+  const hidden = config.hideRoundLimit === true || config.maxRounds === null;
+  if (!hidden) {
+    return { roundSuffix: ` of ${config.maxRounds}`, noLimitNote: "" };
+  }
+  return {
+    roundSuffix: "",
+    noLimitNote:
+      "The debate has no fixed length — it ends when the critic judges that genuine convergence, deadlock, or divergence has been reached.",
+  };
+}
+
+/** The critic's rubric line about the round limit, rendered per hidden mode. */
+export function criticMaxRoundsRule(hidden: boolean): string {
+  return hidden
+    ? "the debate has no announced round limit — stop when you judge further rounds add no value (genuine consensus, deadlock, or divergence)"
+    : "max rounds hit → \"max rounds reached\"";
 }
