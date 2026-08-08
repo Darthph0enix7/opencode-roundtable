@@ -27,9 +27,7 @@ In `~/.config/opencode/opencode.jsonc`:
 ```jsonc
 {
   "plugin": [
-    "oh-my-opencode-slim",
-    "@cortexkit/opencode-magic-context",
-    "opencode-roundtable"                 // zero-config
+    "opencode-roundtable"                  // zero-config
     // OR with options:
     // ["opencode-roundtable", { "mode": "light" }]
   ]
@@ -40,31 +38,17 @@ Then assign models per agent in OpenChamber settings (or let them inherit your s
 
 ## Usage
 
-Three invocation paths:
-
-### Path 1 — `@roundtable` in any chat
-
-```
-@roundtable Should I migrate from oh-my-opencode-slim to a custom orchestrator?
-```
-
-### Path 2 — Tool call from any agent
-
-Any agent can call the `roundtable` tool directly:
+The `roundtable` **tool** is the single entry point (the standalone `roundtable`
+primary agent was removed in v0.1.9 — the tool is invoked by the orchestrator
+agent of your orchestration plugin, or by any agent with the tool granted).
 
 ```javascript
-// In another agent's prompt, the model decides to invoke:
 await tool.roundtable({
   query: "Should we replace Docker Compose with Kubernetes?",
-  maxRounds: 5,        // optional, default: 5
-  debug: false,        // optional, default: false
+  maxRounds: 5,        // optional; null = unbounded (hidden safety cap)
+  hideLimit: true,     // optional — hide the round limit from agents
+  debug: false,        // optional
 });
-```
-
-### Path 3 — Slash command (in TUI)
-
-```
-/roundtable Should I keep using SQLite for embedded deployments?
 ```
 
 ## Configuration
@@ -92,13 +76,15 @@ User-explicit values override mode-preset values, which override defaults.
 | `light` | 3 | 0.75 | 0.70 | 60s | 1 | quick gut-check, cheap |
 | `standard` (default) | 5 | 0.85 | 0.80 | 120s | 2 | most questions |
 | `heavy` | 7 | 0.90 | 0.85 | 180s | 3 | architectural decisions |
+| `free` | hidden (null) | 0.85 | 0.80 | 120s | 2 | debate runs as long as it needs — no announced limit |
 
 ### All parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `mode` | `"light" \| "standard" \| "heavy"` | `"standard"` | Operating mode preset |
-| `maxRounds` | number | 5 / 3 / 7 | Maximum debate rounds before forced stop |
+| `mode` | `"light" \| "standard" \| "heavy" \| "free"` | `"standard"` | Operating mode preset |
+| `maxRounds` | number \| null | 5 / 3 / 7 / null | Machine-side round cap. `null` = unbounded (hidden safety cap 12). Never rendered into prompts when hidden. |
+| `hideRoundLimit` | boolean | `false` | Hide the round limit from ALL agents (anti-deadline-pacing). The machine still enforces `maxRounds`. |
 | `consensusThreshold` | number 0–1 | 0.85 / 0.75 / 0.90 | STOP when consensus ≥ threshold |
 | `qualityThreshold` | number 0–1 | 0.80 / 0.70 / 0.85 | STOP when quality ≥ threshold AND consensus not improving |
 | `minImprovementDelta` | number 0–1 | 0.05 | Required consensus delta to avoid "quality sufficient" STOP |
@@ -124,6 +110,7 @@ When calling the `roundtable` tool, you can override two parameters at runtime:
 roundtable({
   query: "...",        // required
   maxRounds: 7,        // overrides config.maxRounds for this call
+  hideLimit: true,     // overrides config.hideRoundLimit for this call
   debug: true,         // overrides config.debug for this call
 });
 ```
@@ -134,7 +121,6 @@ All other parameters inherit from plugin config.
 
 | Agent | Mode | Role | Default model |
 |-------|------|------|---------------|
-| `roundtable` | primary | Orchestrator — calls the roundtable tool, returns result verbatim | inherits |
 | `roundtable-skeptic` | subagent | **Adversarial critic** — finds logic holes, unstated assumptions, worst-case | inherits |
 | `roundtable-pragmatist` | subagent | **Ship-now stance** — flags over-engineering, defends the boring choice | inherits |
 | `roundtable-architect` | subagent | **Long-term shape** — checks coupling, blast radius, 3-year horizons | inherits |
@@ -182,10 +168,6 @@ Critic scores again → loop until STOP
 Critic synthesizes final report (5 sections)
 ```
 
-## Universal Auto-Updater
-
-The plugin includes a **zero-configuration background auto-updater**. When OpenCode boots, it silently checks the npm registry for a newer version. If an update is found, it uses OpenCode's native CLI (`opencode plugin <name> -f`) to update the cache in the background and sends a toast notification to restart. You never have to manually clear OpenCode's plugin cache.
-
 ## Output format
 
 ```
@@ -230,9 +212,10 @@ The "Stop reason" in Debate Summary can be any of:
 | `quality_sufficient` | quality ≥ threshold AND consensus not improving |
 | `diverging` | consensus dropped by ≥ divergenceThreshold |
 | `no_improvement` | 2+ rounds of negligible delta |
-| `max_rounds` | hit maxRounds |
+| `max_rounds` | hit maxRounds (or the hidden safety cap for unbounded debates) |
 | `insufficient_participants` | <2 debaters active (failed/retry-exhausted) |
-| `context_pressure` | debate exceeded ~120K total tokens (debate is over) |
+| `context_pressure` | a debate session exceeded the 60K-token per-session context estimate |
+| `aborted_by_user` | the invoking session was cancelled — all debate sessions aborted + cleaned up |
 
 ## Failure handling
 
@@ -242,7 +225,7 @@ The "Stop reason" in Debate Summary can be any of:
 | Debater API error/timeout | Retry up to `debaterRetries`, then mark failed |
 | All 3 debaters fail | STOP — `< 2 active` triggers |
 | Critic returns unparseable JSON | Retry once with format reminder |
-| Critic API error/timeout | Heuristic fallback: keyword overlap + round count, marked as "heuristics used" |
+| Critic API error/timeout/empty response | Logged to console with the exact reason, heuristic fallback (keyword overlap + round count), marked "⚠️ (heuristic fallback)" in the report |
 
 ## Debug mode
 
@@ -256,7 +239,7 @@ Useful for tuning thresholds and understanding why a debate stopped early.
 
 ## Architecture
 
-7 source files, ~450 LOC TypeScript:
+7 source files, ~700 LOC TypeScript:
 
 ```
 src/
@@ -271,7 +254,37 @@ src/
 
 Plays by the v2 OpenCode plugin contract: `default export = { id, server }`, server returns `{ tool, config }`. Each agent's full system prompt is set in the `config` hook so OpenCode prepends it as the actual `system` message at inference time — runtime spawning only sends round-specific user messages.
 
-State is **in-memory only** — no disk persistence. Debates are scoped to the calling session.
+State is **in-memory only** — no disk persistence. Debates are scoped to the calling session. Each debate uses a **persistent session pool** (one session per debater + critic, reused across rounds so participants remember their own arguments); all sessions are deleted in a `finally` block when the debate ends, is cancelled, or throws.
+
+## Abort handling
+
+If you cancel the session that invoked the roundtable tool, the runtime fires
+the tool's `AbortSignal`. The plugin listens for it and immediately:
+
+1. Calls `session.abort()` on every pool session (kills in-flight generations — no token burn)
+2. Stops the loop — no critic scoring, no next round, no synthesis
+3. Deletes all sessions in the `finally` block
+
+Debater/critic retries are abort-aware (never re-prompt after an abort). If the
+debate ends early this way, the tool returns a short `## Debate Aborted` note.
+Session cleanup retries 3× with backoff and logs failures, so broken leftover
+sessions don't linger.
+
+## Hidden round limit (anti-deadline-pacing)
+
+When `hideRoundLimit: true` (or `maxRounds: null`), the debaters and critic are
+**never told** the round horizon ("Round X of Y" is dropped from prompts and the
+critic's max-round trigger is removed). LLMs pace their scoring against an
+announced schedule; hiding it makes the debate length emerge from content. The
+machine still enforces the cap deterministically.
+
+## Persistent sessions
+
+Each debate creates ONE session per debater + one for the critic, reused across
+all rounds. Debaters retain their own full argumentation history (no re-injection,
+no spawn/delete churn); the critic's session accumulates every scoring round, so
+the final synthesis runs without re-injecting the full transcript. All sessions
+are deleted when the debate finishes, is aborted, or throws.
 
 ## Development
 
