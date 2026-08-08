@@ -12,6 +12,32 @@ export interface LoopResult {
   elapsedMs: number;
 }
 
+/**
+ * Delete a session robustly. On abort the session store may still be flushing
+ * the interrupted generation — the first delete can fail with the session
+ * still listed. Retry a few times with backoff and log the final failure so
+ * broken leftover sessions stop happening silently.
+ */
+async function deleteSessionSafely(
+  client: OpencodeClient,
+  id: string,
+): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await client.session.delete({ path: { id } });
+      if (!res.error) return;
+      if (attempt === 3) {
+        console.error(`[roundtable] FAILED to delete session ${id} after 3 attempts: ${JSON.stringify(res.error)}\n`);
+      }
+    } catch (e) {
+      if (attempt === 3) {
+        console.error(`[roundtable] FAILED to delete session ${id}: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
+    }
+    await new Promise((r) => setTimeout(r, 400 * attempt));
+  }
+}
+
 export async function runLoop(
   client: OpencodeClient,
   query: string,
@@ -84,7 +110,7 @@ export async function runLoop(
     // Always clean up pool sessions — the debate ended, was cancelled, or
     // threw. Never leak sessions into the server.
     for (const id of ownedSessions) {
-      await client.session.delete({ path: { id } }).catch(() => {});
+      await deleteSessionSafely(client, id);
     }
   }
 }

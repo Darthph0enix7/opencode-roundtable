@@ -25,6 +25,32 @@ interface ScoreContext {
   directory: string;
 }
 
+/**
+ * Delete a session robustly. On abort the session store may still be flushing
+ * the interrupted generation — the first delete can fail with the session
+ * still listed. Retry a few times with backoff and log the final failure so
+ * broken leftover sessions stop happening silently.
+ */
+async function deleteSessionSafely(
+  client: OpencodeClient,
+  id: string,
+): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await client.session.delete({ path: { id } });
+      if (!res.error) return;
+      if (attempt === 3) {
+        console.error(`[roundtable] FAILED to delete session ${id} after 3 attempts: ${JSON.stringify(res.error)}\n`);
+      }
+    } catch (e) {
+      if (attempt === 3) {
+        console.error(`[roundtable] FAILED to delete session ${id}: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
+    }
+    await new Promise((r) => setTimeout(r, 400 * attempt));
+  }
+}
+
 export async function scoreRound(
   client: OpencodeClient,
   config: RoundtableConfig,
@@ -122,7 +148,7 @@ async function callCritic(
       };
     } finally {
       if (createdHere) {
-        await client.session.delete({ path: { id: sessionId } }).catch(() => {});
+        await deleteSessionSafely(client, sessionId);
       }
     }
   } catch {
@@ -247,7 +273,7 @@ export async function synthesize(
         .join("");
     } finally {
       if (createdHere) {
-        await client.session.delete({ path: { id: sessionId } }).catch(() => {});
+        await deleteSessionSafely(client, sessionId);
       }
     }
   } catch (e) {
