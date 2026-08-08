@@ -1,8 +1,11 @@
 # opencode-roundtable
 
-**Multi-agent roundtable debate plugin for OpenCode.**
+**Multi-agent debate AND brainstorming plugin for OpenCode.**
 
-Puts three debaters (Skeptic, Pragmatist, Architect) and a Critic at a table, runs them across multiple rounds with real cross-examination, and synthesizes a council report with dissents and model-usage footer.
+Two tools, one battle-tested engine:
+
+- **`roundtable`** — adversarial multi-perspective debate. Three debaters (Skeptic, Pragmatist, Architect) cross-examine each other across rounds; a Critic scores consensus and synthesizes a council report with dissents.
+- **`chorus`** — constructive multi-model brainstorming. Three creative lenses (Visionary, Experiencer, Integrator) BUILD on each other's ideas; a Curator dedupes, groups themes, spots gems, and detects when idea generation plateaus. Turns a vague vision into a harvest of concrete feature options.
 
 ## What is it?
 
@@ -50,6 +53,35 @@ await tool.roundtable({
   debug: false,        // optional
 });
 ```
+
+## Chorus — creative brainstorming
+
+Use `chorus` when you have a vague seed ("a custom assistant UI... I don't know what else") and want the feature space EXPANDED, not decided. It is the constructive counterpart to the debate tool: no opposing roles, no consensus — ideas build on ideas until genuinely new ones stop appearing.
+
+```javascript
+await tool.chorus({
+  query: "A personal assistant app: what features beyond chat/voice/memory?",
+  maxRounds: 4,        // optional; null = unbounded (hidden safety cap)
+  hideLimit: true,     // optional — hide the round limit from participants
+});
+```
+
+### Participants
+
+| Agent | Role |
+|-------|------|
+| `chorus-visionary` | Dreams what it could BECOME — moonshots, what-if directions, 2-3 year horizons |
+| `chorus-experiencer` | Lives in the user's daily moments — ideas as felt experience |
+| `chorus-integrator` | Knows what today's stack enables — buildable directions with effort tags (now/soon/later) |
+| `chorus-curator` | Chair — dedupes, groups themes, spots gems, detects plateau, writes the harvest |
+
+### How it stops
+
+Not by consensus — by **plateau**: the curator counts genuinely-new ideas per round, and the machine stops when fewer than `minNewIdeas` (default 2) appear. Also: max rounds, hidden safety cap, quorum, context guard, or user abort.
+
+### Output — Idea Harvest
+
+Themes (grouped, with who proposed + who built on each), Top Gems (clustered across lenses), Buildable-now vs Moonshot, Open Questions, and the Curator's recommendation. A menu for YOU to choose from — not a verdict.
 
 ## Configuration
 
