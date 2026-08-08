@@ -164,7 +164,6 @@ ContinueDecision triggers (all of these cause STOP):
 - quality ≥ 0.80 AND consensus not improving → "quality sufficient"
 - consensus *decreasing* by ≥ 0.10 → "positions diverging"
 - 2+ rounds of negligible delta → "no further improvement"
-- {{maxRoundsRule}}
 
 The runningBrief becomes the debaters' context next round (3–5 bullets, ≤200 words: key concessions made, points resolved, open disputes).
 
@@ -243,6 +242,8 @@ Consensus history so far: {{consensusHistory}}
 Round transcript:
 
 {{roundTranscript}}
+
+Round-limit rule for this debate: {{maxRoundsRule}}
 
 Output ONLY valid JSON — no markdown, no prose outside the JSON. Match this schema exactly:
 

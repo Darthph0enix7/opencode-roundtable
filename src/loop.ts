@@ -2,7 +2,7 @@
 
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import type { RoundtableConfig, DebateState, RoundRecord } from "./types.js";
-import { createDebateState, DEBATERS, evaluateStopping, estimateTokens, SAFETY_CAP_ROUNDS } from "./types.js";
+import { createDebateState, DEBATERS, evaluateStopping, SAFETY_CAP_ROUNDS } from "./types.js";
 import { runRound } from "./round.js";
 import { scoreRound, synthesize } from "./critic.js";
 
@@ -72,28 +72,40 @@ export async function runLoop(
     state.qualityHistory.push(criticResult.qualityScore);
     state.runningBrief = criticResult.runningBrief;
 
-    // Stopping conditions
-    const decision = evaluateStopping(state);
-    if (decision.stop) {
-      state.status = "completed";
-      roundRecord.critic!.reasonIfStop = decision.reason;  // preserve machine-determined stop reason
+    // Stopping conditions — each only fires while still deliberating, so a
+    // fired condition can never overwrite an earlier stop reason.
+    if (state.status === "deliberating") {
+      const decision = evaluateStopping(state);
+      if (decision.stop) {
+        state.status = "completed";
+        roundRecord.critic!.reasonIfStop = decision.reason;  // preserve machine-determined stop reason
+      }
     }
 
     // Hidden safety cap for unbounded debates (maxRounds: null).
     // Machine-only — never rendered into any prompt. The final critic
     // scoring above already ran honestly without knowing this cap.
-    if (config.maxRounds === null && state.round >= SAFETY_CAP_ROUNDS) {
+    if (state.status === "deliberating" && config.maxRounds === null && state.round >= SAFETY_CAP_ROUNDS) {
       state.status = "completed";
       roundRecord.critic!.reasonIfStop = "max_rounds";
     }
 
-    // Context pressure check
-    const totalDebateTokens = state.rounds.reduce(
-      (sum, r) => sum + r.responses.reduce((s, resp) => s + estimateTokens(resp.text), 0), 0
-    );
-    if (totalDebateTokens > 120_000) {
-      state.status = "completed";
-      roundRecord.critic!.reasonIfStop = "context_pressure";
+    // Context pressure check (input + output tokens, incl. critic usage)
+    if (state.status === "deliberating") {
+      const totalDebateTokens = state.rounds.reduce(
+        (sum, r) =>
+          sum +
+          r.responses.reduce(
+            (s, resp) => s + resp.tokens.input + resp.tokens.output,
+            0,
+          ) +
+          (r.critic ? r.critic.runningBrief.length * 0.77 : 0),
+        0,
+      );
+      if (totalDebateTokens > 120_000) {
+        state.status = "completed";
+        roundRecord.critic!.reasonIfStop = "context_pressure";
+      }
     }
   }
 
@@ -116,7 +128,7 @@ export async function runLoop(
   const fullTranscript = state.rounds
     .map(r => {
       const responses = r.responses
-        .map(resp => `### ${resp.label} (Round ${r.round})\n${resp.text}`)
+        .map(resp => `### ${resp.label} (Round ${r.round})${resp.error ? ` — ⚠️ FAILED: ${resp.error}` : ""}\n${resp.text}`)
         .join("\n\n");
       const criticNote = r.critic
         ? `\n\n**Critic (Round ${r.round}):** consensus=${r.critic.consensusScore}, quality=${r.critic.qualityScore}, decision=${r.critic.continueDecision}\n${r.critic.runningBrief}`

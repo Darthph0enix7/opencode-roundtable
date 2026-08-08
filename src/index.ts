@@ -16,7 +16,6 @@ import {
   PRAGMATIST_SYSTEM,
   ARCHITECT_SYSTEM,
   CRITIC_SYSTEM,
-  criticMaxRoundsRule,
 } from "./prompts.js";
 import { handleRoundtable } from "./roundtable.js";
 import { z } from "zod";
@@ -64,11 +63,10 @@ async function server(input: PluginInput, options?: PluginOptions) {
   const debaterTools = config.enableDebaterTools ? RESEARCH_TOOLS : { task: false };
   const criticTools  = config.enableCriticTools  ? RESEARCH_TOOLS : { task: false };
 
-  // Render the critic's system prompt with the correct round-limit rule.
-  const criticSystem = CRITIC_SYSTEM.replaceAll(
-    "{{maxRoundsRule}}",
-    criticMaxRoundsRule(config.hideRoundLimit === true || config.maxRounds === null),
-  );
+  // NOTE: the round-limit rule ({{maxRoundsRule}}) is deliberately NOT
+  // embedded here — the agent prompt is static per plugin load, but the
+  // rule depends on per-call hideLimit/maxRounds overrides. It is injected
+  // dynamically into CRITIC_SCORING_PROMPT on every scoreRound call.
 
   const roundtableTool: ToolDefinition = {
     description: `Run a multi-agent roundtable debate on a question. Spawns ${DEBATERS.length} debaters (${DEBATERS.map((d) => d.label).join(", ")}) across multiple rounds with cross-examination and consensus scoring. Returns a synthesized council report with dissents and a model-usage footer.`,
@@ -102,7 +100,7 @@ async function server(input: PluginInput, options?: PluginOptions) {
   allAgents["roundtable-critic"] = {
     mode: "subagent",
     description: "Debate critic — scores consensus, decides continue/stop, synthesizes final report",
-    prompt: criticSystem,
+    prompt: CRITIC_SYSTEM,
     tools: criticTools,
   };
 

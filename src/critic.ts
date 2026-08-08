@@ -5,11 +5,13 @@
 
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import type { RoundtableConfig, DebaterResponse, CriticOutput } from "./types.js";
+import { estimateTokens, withTimeout } from "./types.js";
 import {
   CRITIC_SCORING_PROMPT,
   CRITIC_SYNTHESIS_PROMPT,
   modelFooter,
   roundHorizonParts,
+  criticMaxRoundsRule,
 } from "./prompts.js";
 
 // ── Scoring round ───────────────────────────────────────────────────────────
@@ -43,6 +45,7 @@ export async function scoreRound(
     .replaceAll("{{roundSuffix}}", roundSuffix)
     .replaceAll("{{noLimitNote}}", noLimitNote)
     .replaceAll("{{maxRounds}}", hidden ? "" : String(config.maxRounds))
+    .replaceAll("{{maxRoundsRule}}", criticMaxRoundsRule(hidden))
     .replaceAll("{{consensusHistory}}", JSON.stringify(consensusHistory))
     .replaceAll("{{roundTranscript}}", transcript);
 
@@ -72,35 +75,41 @@ async function callCritic(
     if (createResult.error) return null;
     const sessionId = createResult.data.id;
 
-    const promptResult = await client.session.prompt({
-      path: { id: sessionId },
-      body: {
-        agent: "roundtable-critic",  // OpenCode uses the agent's prompt as system message
-        parts: [{ type: "text", text: prompt }],
-      },
-    });
+    try {
+      const promptResult = await withTimeout(
+        client.session.prompt({
+          path: { id: sessionId },
+          body: {
+            agent: "roundtable-critic",  // OpenCode uses the agent's prompt as system message
+            parts: [{ type: "text", text: prompt }],
+          },
+        }),
+        config.perAgentTimeout,
+        "critic scoring",
+      );
 
-    await client.session.delete({ path: { id: sessionId } }).catch(() => {});
+      if (promptResult.error) return null;
+      if (promptResult.data.info.error) return null;
 
-    if (promptResult.error) return null;
-    if (promptResult.data.info.error) return null;
+      const text = promptResult.data.parts
+        .filter((p: { type: string }) => p.type === "text")
+        .map((p: { text?: string }) => p.text ?? "")
+        .join("");
 
-    const text = promptResult.data.parts
-      .filter((p: { type: string }) => p.type === "text")
-      .map((p: { text?: string }) => p.text ?? "")
-      .join("");
+      const json = extractJSON(text);
+      if (!json) return null;
 
-    const json = extractJSON(text);
-    if (!json) return null;
-
-    return {
-      consensusScore: clamp(Number(json.consensusScore) || 0, 0, 1),
-      qualityScore: clamp(Number(json.qualityScore) || 0, 0, 1),
-      continueDecision: json.continueDecision === "STOP" ? "STOP" : "CONTINUE",
-      reasonIfStop: typeof json.reasonIfStop === "string" ? json.reasonIfStop : null,
-      runningBrief: typeof json.runningBrief === "string" ? json.runningBrief : "No summary available.",
-      heuristicFallback: false,
-    };
+      return {
+        consensusScore: clamp(Number(json.consensusScore) || 0, 0, 1),
+        qualityScore: clamp(Number(json.qualityScore) || 0, 0, 1),
+        continueDecision: json.continueDecision === "STOP" ? "STOP" : "CONTINUE",
+        reasonIfStop: typeof json.reasonIfStop === "string" ? json.reasonIfStop : null,
+        runningBrief: typeof json.runningBrief === "string" ? json.runningBrief : "No summary available.",
+        heuristicFallback: false,
+      };
+    } finally {
+      await client.session.delete({ path: { id: sessionId } }).catch(() => {});
+    }
   } catch {
     return null;
   }
@@ -110,14 +119,37 @@ async function callCritic(
 
 function heuristicScore(ctx: ScoreContext): CriticOutput {
   const { round, maxRounds, responses } = ctx;
-  const activeCount = responses.filter(r => !r.error).length;
+  const active = responses.filter(r => !r.error);
+  const activeCount = active.length;
 
   let consensus = 0.5;
   if (activeCount >= 2) {
-    const texts = responses.filter(r => !r.error).map(r => r.text.toLowerCase());
-    const words = texts.map(t => new Set(t.split(/\s+/).slice(0, 100)));
-    const overlap = [...words[0]].filter(w => words[1].has(w)).length / Math.max(words[0].size, 1);
-    consensus = clamp(overlap, 0, 1);
+    const texts = active.map(r => r.text.toLowerCase());
+    // Strip common stop-words so English filler doesn't fake agreement.
+    const stopWords = new Set(
+      "the a an and or but of to in on for with as at by is are was were be been being it its this that these those i you he she we they my your our their not no so if then than from into over under".split(" "),
+    );
+    const wordSets = texts.map(t =>
+      new Set(
+        t.split(/\s+/)
+          .filter(w => w.length > 2 && !stopWords.has(w))
+          .slice(0, 100),
+      ),
+    );
+    // Average Jaccard overlap across ALL pairs (not just [0] vs [1]).
+    let total = 0;
+    let pairs = 0;
+    for (let i = 0; i < wordSets.length; i++) {
+      for (let j = i + 1; j < wordSets.length; j++) {
+        const a = wordSets[i];
+        const b = wordSets[j];
+        const inter = [...a].filter(w => b.has(w)).length;
+        total += inter / Math.max(a.size + b.size - inter, 1);
+        pairs++;
+      }
+    }
+    consensus = pairs > 0 ? total / pairs : 0.5;
+    consensus = clamp(consensus, 0, 1);
   }
 
   const adjustedConsensus = consensus * (1 - (round / maxRounds) * 0.3);
@@ -164,28 +196,34 @@ export async function synthesize(
     if (createResult.error) return `## Council Decision\n\nCritic synthesis failed: session creation error.\n\n${ctx.fullTranscript}`;
     const sessionId = createResult.data.id;
 
-    const promptResult = await client.session.prompt({
-      path: { id: sessionId },
-      body: {
-        agent: "roundtable-critic",
-        parts: [{ type: "text", text: prompt }],
-      },
-    });
+    try {
+      const promptResult = await withTimeout(
+        client.session.prompt({
+          path: { id: sessionId },
+          body: {
+            agent: "roundtable-critic",
+            parts: [{ type: "text", text: prompt }],
+          },
+        }),
+        config.perAgentTimeout,
+        "critic synthesis",
+      );
 
-    await client.session.delete({ path: { id: sessionId } }).catch(() => {});
+      if (promptResult.error) {
+        return `## Council Decision\n\nCritic synthesis failed: ${JSON.stringify(promptResult.error)}.\n\n${ctx.fullTranscript}`;
+      }
 
-    if (promptResult.error) {
-      return `## Council Decision\n\nCritic synthesis failed: ${JSON.stringify(promptResult.error)}.\n\n${ctx.fullTranscript}`;
+      if (promptResult.data.info.error) {
+        return `## Council Decision\n\nCritic synthesis error: ${promptResult.data.info.error.name}.\n\n${ctx.fullTranscript}`;
+      }
+
+      return promptResult.data.parts
+        .filter((p: { type: string }) => p.type === "text")
+        .map((p: { text?: string }) => p.text ?? "")
+        .join("");
+    } finally {
+      await client.session.delete({ path: { id: sessionId } }).catch(() => {});
     }
-
-    if (promptResult.data.info.error) {
-      return `## Council Decision\n\nCritic synthesis error: ${promptResult.data.info.error.name}.\n\n${ctx.fullTranscript}`;
-    }
-
-    return promptResult.data.parts
-      .filter((p: { type: string }) => p.type === "text")
-      .map((p: { text?: string }) => p.text ?? "")
-      .join("");
   } catch (e) {
     return `## Council Decision\n\nCritic synthesis failed: ${e instanceof Error ? e.message : String(e)}.\n\n${ctx.fullTranscript}`;
   }
@@ -199,9 +237,13 @@ function extractJSON(text: string): Record<string, unknown> | null {
   if (match) {
     try { return JSON.parse(match[1]) as Record<string, unknown>; } catch {}
   }
-  const braceMatch = text.match(/\{[\s\S]*\}/);
-  if (braceMatch) {
-    try { return JSON.parse(braceMatch[0]) as Record<string, unknown>; } catch {}
+  // Non-greedy block-by-block extraction: try each {...} region in turn.
+  // (A greedy [\s\S]* match spans multiple brace pairs and fails to parse.)
+  const blocks = text.match(/\{[\s\S]*?\}/g);
+  if (blocks) {
+    for (const block of blocks) {
+      try { return JSON.parse(block) as Record<string, unknown>; } catch {}
+    }
   }
   return null;
 }

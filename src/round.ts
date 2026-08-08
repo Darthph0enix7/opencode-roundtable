@@ -6,7 +6,7 @@
 
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import type { RoundtableConfig, DebaterResponse, DebaterDef } from "./types.js";
-import { DEBATERS, estimateTokens } from "./types.js";
+import { DEBATERS, estimateTokens, withTimeout } from "./types.js";
 import {
   ROUND_1_DEBATER_INSTRUCTION,
   ROUND_N_DEBATER_INSTRUCTION,
@@ -81,51 +81,59 @@ export async function spawnDebater(
       }
       const sessionId = createResult.data.id;
 
-      const promptResult = await client.session.prompt({
-        path: { id: sessionId },
-        body: {
-          agent: def.name,  // OpenCode uses def.name's agent prompt as system message
-          parts: [{ type: "text", text: effectivePrompt }],
-        },
-      });
+      try {
+        const promptResult = await withTimeout(
+          client.session.prompt({
+            path: { id: sessionId },
+            body: {
+              agent: def.name,  // OpenCode uses def.name's agent prompt as system message
+              parts: [{ type: "text", text: effectivePrompt }],
+            },
+          }),
+          config.perAgentTimeout,
+          "debater prompt",
+        );
 
-      await client.session.delete({ path: { id: sessionId } }).catch(() => {});
+        if (promptResult.error) {
+          lastError = `prompt: ${JSON.stringify(promptResult.error)}`;
+          continue;
+        }
 
-      if (promptResult.error) {
-        lastError = `prompt: ${JSON.stringify(promptResult.error)}`;
-        continue;
+        const { info, parts } = promptResult.data;
+
+        if (info.error) {
+          lastError = info.error.name ?? "message_error";
+          if (info.error.name === "context_overflow") break;
+          continue;
+        }
+
+        const text = parts
+          .filter((p: { type: string }) => p.type === "text")
+          .map((p: { text?: string }) => p.text ?? "")
+          .join("");
+
+        const tokens = {
+          input:  info.tokens?.input  ?? estimateTokens(effectivePrompt),
+          output: info.tokens?.output ?? estimateTokens(text),
+        };
+
+        if (tokens.output < config.debaterMinTokens) {
+          lastError = `response too short (${tokens.output} tokens)`;
+          continue;
+        }
+
+        return {
+          agentName: def.name,
+          label: def.label,
+          text,
+          tokens,
+          error: null,
+        };
+      } finally {
+        // Always delete the session — even when prompt() throws (network
+        // timeout, 5xx, abort). Prevents orphaned sessions on the server.
+        await client.session.delete({ path: { id: sessionId } }).catch(() => {});
       }
-
-      const { info, parts } = promptResult.data;
-
-      if (info.error) {
-        lastError = info.error.name ?? "message_error";
-        if (info.error.name === "context_overflow") break;
-        continue;
-      }
-
-      const text = parts
-        .filter((p: { type: string }) => p.type === "text")
-        .map((p: { text?: string }) => p.text ?? "")
-        .join("");
-
-      const tokens = {
-        input:  info.tokens?.input  ?? estimateTokens(effectivePrompt),
-        output: info.tokens?.output ?? estimateTokens(text),
-      };
-
-      if (tokens.output < config.debaterMinTokens) {
-        lastError = `response too short (${tokens.output} tokens)`;
-        continue;
-      }
-
-      return {
-        agentName: def.name,
-        label: def.label,
-        text,
-        tokens,
-        error: null,
-      };
     } catch (e: unknown) {
       lastError = e instanceof Error ? e.message : String(e);
       if (attempt === config.debaterRetries) break;

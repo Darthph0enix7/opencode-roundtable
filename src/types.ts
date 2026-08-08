@@ -128,6 +128,10 @@ export function loadConfig(raw?: PluginOptions): RoundtableConfig {
       }
     }
   }
+  // Alias: `hideLimit` (tool arg style) → `hideRoundLimit` (config field)
+  if ("hideLimit" in opts && opts.hideLimit !== undefined) {
+    merged.hideRoundLimit = Boolean(opts.hideLimit);
+  }
   return merged;
 }
 
@@ -281,6 +285,23 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.split(/\s+/).length * 1.3);
 }
 
+/**
+ * Reject a promise after `ms` milliseconds. Used to enforce
+ * `perAgentTimeout` on subagent session calls (models can stall).
+ */
+export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${what} timed out after ${ms}ms`)),
+      ms,
+    );
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 /** Plugin metadata */
 export const PLUGIN_ID = "opencode-roundtable";
-export const PLUGIN_VERSION = "0.2.0";
+export const PLUGIN_VERSION = "0.2.1";
