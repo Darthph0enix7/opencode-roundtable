@@ -96,6 +96,16 @@ async function runDebateWithPool(
   abortSignal?: AbortSignal,
   abortedRef?: { value: boolean },
 ): Promise<LoopResult> {
+  // Per-session context estimate (tokens). The old guard summed the
+  // API-reported `tokens.input`, which is unreliable with persistent sessions
+  // (it can report inflated/cumulative values — we saw it fire at "120K" in
+  // round 1 of a trivial debate). This estimate uses only real output tokens
+  // plus a fixed per-round prompt/system/transcript budget, so it bounds the
+  // actual context each session carries deterministically.
+  const sessionTokens = new Map<string, number>();
+  const PROMPT_BUDGET_PER_ROUND = 4000; // system + instruction + others' transcript + brief
+  const SESSION_CONTEXT_LIMIT = 60_000;
+
   while (state.status === "deliberating") {
     if (abortedRef?.value) break;  // abort signal fired (e.g. parent session cancelled)
     state.round++;
@@ -187,19 +197,24 @@ async function runDebateWithPool(
       roundRecord.critic!.reasonIfStop = "max_rounds";
     }
 
-    // Context pressure check (input + output tokens, incl. critic usage)
+    // Context pressure check — deterministic per-session estimate.
     if (state.status === "deliberating") {
-      const totalDebateTokens = state.rounds.reduce(
-        (sum, r) =>
-          sum +
-          r.responses.reduce(
-            (s, resp) => s + resp.tokens.input + resp.tokens.output,
-            0,
-          ) +
-          (r.critic ? r.critic.runningBrief.length * 0.77 : 0),
+      const roundOutput = responses.reduce(
+        (sum, r) => sum + (r.error ? 0 : r.tokens.output),
         0,
       );
-      if (totalDebateTokens > 120_000) {
+      const criticEst = (sessionTokens.get("critic") ?? 0) +
+        PROMPT_BUDGET_PER_ROUND + roundOutput;
+      sessionTokens.set("critic", criticEst);
+      let overLimit = criticEst > SESSION_CONTEXT_LIMIT;
+      for (const r of responses) {
+        if (r.error) continue;
+        const est = (sessionTokens.get(r.agentName) ?? 0) +
+          PROMPT_BUDGET_PER_ROUND + r.tokens.output;
+        sessionTokens.set(r.agentName, est);
+        if (est > SESSION_CONTEXT_LIMIT) overLimit = true;
+      }
+      if (overLimit) {
         state.status = "completed";
         roundRecord.critic!.reasonIfStop = "context_pressure";
       }
