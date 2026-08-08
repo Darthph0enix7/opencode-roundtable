@@ -76,13 +76,17 @@ async function server(input: PluginInput, options?: PluginOptions) {
       hideLimit: z.boolean().optional().describe("Hide the round limit from all agents (anti-deadline-pacing); the machine still enforces maxRounds"),
       debug: z.boolean().optional().describe("Include full debate state in output"),
     },
-    async execute(args: Record<string, unknown>, _context: unknown) {
+    async execute(args: Record<string, unknown>, context: unknown) {
+      // The parent session id (the session that invoked the tool) links the
+      // debate sessions to their parent — native abort propagation cancels
+      // them when the user aborts the parent session.
+      const parentID = (context as { sessionID?: string })?.sessionID;
       return handleRoundtable(client, config, {
         query: args.query as string,
         maxRounds: args.maxRounds as number | null | undefined,
         hideLimit: args.hideLimit as boolean | undefined,
         debug: args.debug as boolean | undefined,
-      }, directory);
+      }, directory, parentID);
     },
   };
 

@@ -177,6 +177,7 @@ export type DebateStatus =
   | "init"
   | "deliberating"
   | "completed"
+  | "aborted"
   | "failed";
 
 export interface RoundRecord {
@@ -304,4 +305,4 @@ export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise
 
 /** Plugin metadata */
 export const PLUGIN_ID = "opencode-roundtable";
-export const PLUGIN_VERSION = "0.2.2";
+export const PLUGIN_VERSION = "0.2.3";

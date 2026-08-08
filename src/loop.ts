@@ -17,6 +17,7 @@ export async function runLoop(
   query: string,
   config: RoundtableConfig,
   directory: string,
+  parentID?: string,
 ): Promise<LoopResult> {
   const state = createDebateState(query, config);
   state.status = "deliberating";
@@ -32,9 +33,10 @@ export async function runLoop(
   const sessionPool: Record<string, string> = {};
   const ownedSessions: string[] = [];
   try {
+    const createBody = parentID ? { parentID } : undefined;
     for (const def of DEBATERS) {
       try {
-        const res = await client.session.create({ query: { directory } });
+        const res = await client.session.create({ query: { directory }, body: createBody });
         if (res.data?.id) {
           sessionPool[def.name] = res.data.id;
           ownedSessions.push(res.data.id);
@@ -42,7 +44,7 @@ export async function runLoop(
       } catch { /* pool creation is best-effort; degrade to per-round sessions */ }
     }
     try {
-      const res = await client.session.create({ query: { directory } });
+      const res = await client.session.create({ query: { directory }, body: createBody });
       if (res.data?.id) {
         sessionPool["critic"] = res.data.id;
         ownedSessions.push(res.data.id);
@@ -51,7 +53,7 @@ export async function runLoop(
   } catch { /* best-effort */ }
 
   try {
-    return await runDebateWithPool(client, query, config, directory, state, sessionPool);
+    return await runDebateWithPool(client, query, config, directory, state, sessionPool, parentID);
   } finally {
     // Always clean up pool sessions — the debate ended, was cancelled, or
     // threw. Never leak sessions into the server.
@@ -68,6 +70,7 @@ async function runDebateWithPool(
   directory: string,
   state: DebateState,
   sessionPool: Record<string, string>,
+  parentID?: string,
 ): Promise<LoopResult> {
   while (state.status === "deliberating") {
     state.round++;
@@ -83,8 +86,29 @@ async function runDebateWithPool(
         : null,
     };
 
-    const responses = await runRound(client, config, ctx, sessionPool);
+    const responses = await runRound(client, config, ctx, sessionPool, parentID);
     state.activeDebaterCount = responses.filter(r => !r.error).length;
+
+    // User-abort detection: if most debaters were aborted (parent session
+    // cancelled → native abort propagation), stop immediately and skip the
+    // expensive synthesis. The finally block cleans up the pool.
+    const aborts = responses.filter(r =>
+      r.error && /abort|cancel|interrupt/i.test(r.error)
+    ).length;
+    if (aborts >= 2 || (aborts > 0 && responses.length - aborts < 2)) {
+      state.status = "aborted";
+      const roundRecord: RoundRecord = { round: state.round, responses };
+      roundRecord.critic = {
+        consensusScore: 0,
+        qualityScore: 0,
+        continueDecision: "STOP",
+        reasonIfStop: "aborted_by_user",
+        runningBrief: "The debate was aborted by the user.",
+        heuristicFallback: true,
+      };
+      state.rounds.push(roundRecord);
+      break;
+    }
 
     const roundRecord: RoundRecord = { round: state.round, responses };
     state.rounds.push(roundRecord);
@@ -113,7 +137,7 @@ async function runDebateWithPool(
       consensusHistory: state.consensusHistory,
       responses,
       directory,
-    }, sessionPool["critic"]);
+    }, sessionPool["critic"], parentID);
 
     roundRecord.critic = criticResult;
     state.consensusHistory.push(criticResult.consensusScore);
@@ -185,7 +209,9 @@ async function runDebateWithPool(
     })
     .join("\n\n---\n");
 
-  const synthesis = await synthesize(client, config, {
+  const synthesis = state.status === "aborted"
+    ? `## Debate Aborted\n\nThe debate was aborted by the user after ${state.round} round(s). All debate sessions were cleaned up.`
+    : await synthesize(client, config, {
     query: state.query,
     stopReason,
     roundsRun: state.round,
@@ -195,7 +221,7 @@ async function runDebateWithPool(
     debaterModels,
     criticModel,
     directory,
-  }, sessionPool["critic"]);
+  }, sessionPool["critic"], parentID);
 
   return { state, synthesis, elapsedMs: Date.now() - state.startTime };
 }
