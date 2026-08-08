@@ -149,7 +149,7 @@ roundtable({
 
 All other parameters inherit from plugin config.
 
-## The five agents
+## The roundtable agents
 
 | Agent | Mode | Role | Default model |
 |-------|------|------|---------------|
@@ -159,6 +159,8 @@ All other parameters inherit from plugin config.
 | `roundtable-critic` | subagent | **Judge + synthesizer** — scores consensus, decides continue/stop, writes final report | inherits |
 
 Each subagent has a detailed system prompt in the agent config explaining their epistemic position, what state they represent, and behavioral rules. Models are assignable per agent via OpenChamber settings.
+
+The `chorus` brainstorming tool adds four more agents: `chorus-visionary`, `chorus-experiencer`, `chorus-integrator` (creative lenses) and `chorus-curator` (chair + harvest writer). Same research-tool surface, assign models the same way.
 
 ### Tool access (research-by-default)
 
