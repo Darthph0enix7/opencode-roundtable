@@ -43,6 +43,16 @@ export async function runLoop(
 
     // Quorum check early
     if (state.activeDebaterCount < 2) {
+      // Record the stop reason so final synthesis reports it correctly
+      // instead of falling back to "unknown".
+      roundRecord.critic = {
+        consensusScore: 0,
+        qualityScore: 0,
+        continueDecision: "STOP",
+        reasonIfStop: "insufficient_participants",
+        runningBrief: "Too few debaters remain active to continue the debate.",
+        heuristicFallback: true,
+      };
       state.status = "completed";
       break;
     }

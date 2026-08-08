@@ -35,13 +35,14 @@ export async function scoreRound(
     .join("\n\n");
 
   const { roundSuffix, noLimitNote } = roundHorizonParts(config);
+  const hidden = config.hideRoundLimit === true || config.maxRounds === null;
 
   const prompt = CRITIC_SCORING_PROMPT
     .replaceAll("{{query}}", query)
     .replaceAll("{{round}}", String(round))
     .replaceAll("{{roundSuffix}}", roundSuffix)
     .replaceAll("{{noLimitNote}}", noLimitNote)
-    .replaceAll("{{maxRounds}}", config.maxRounds === null ? "" : String(config.maxRounds))
+    .replaceAll("{{maxRounds}}", hidden ? "" : String(config.maxRounds))
     .replaceAll("{{consensusHistory}}", JSON.stringify(consensusHistory))
     .replaceAll("{{roundTranscript}}", transcript);
 

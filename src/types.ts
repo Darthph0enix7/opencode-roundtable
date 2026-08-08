@@ -111,7 +111,12 @@ export function loadConfig(raw?: PluginOptions): RoundtableConfig {
   const opts = (raw ?? {}) as Record<string, unknown>;
   const merged: RoundtableConfig = { ...DEFAULT_CONFIG };
   for (const key of Object.keys(DEFAULT_CONFIG) as (keyof RoundtableConfig)[]) {
-    if (key in opts) (merged as Record<string, unknown>)[key] = opts[key];
+    // Skip explicit `undefined` — it would poison merged values (e.g.
+    // maxRounds: undefined silently disables the cap AND leaks "undefined"
+    // into prompt rendering via " of undefined").
+    if (key in opts && opts[key] !== undefined) {
+      (merged as Record<string, unknown>)[key] = opts[key];
+    }
   }
   // Apply mode preset on top (user values override preset, preset overrides defaults)
   const preset = MODE_PRESETS[merged.mode];

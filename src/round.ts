@@ -45,6 +45,7 @@ export function buildDebaterPrompt(def: DebaterDef, ctx: RoundContext): string {
     .join("\n\n");
 
   const { roundSuffix, noLimitNote } = roundHorizonParts(config);
+  const hidden = config.hideRoundLimit === true || config.maxRounds === null;
 
   return ROUND_N_DEBATER_INSTRUCTION
     .replaceAll("{{query}}", query)
@@ -53,7 +54,7 @@ export function buildDebaterPrompt(def: DebaterDef, ctx: RoundContext): string {
     .replaceAll("{{runningBrief}}", runningBrief || "(none yet — this is the first cross-examination round)")
     .replaceAll("{{roundTranscript}}", transcript)
     .replaceAll("{{round}}", String(round))
-    .replaceAll("{{maxRounds}}", config.maxRounds === null ? "" : String(config.maxRounds));
+    .replaceAll("{{maxRounds}}", hidden ? "" : String(config.maxRounds));
 }
 
 // ── Spawn a single debater ──────────────────────────────────────────────────
