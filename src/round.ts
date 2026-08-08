@@ -65,6 +65,7 @@ export async function spawnDebater(
   prompt: string,
   config: RoundtableConfig,
   directory: string,
+  poolSessionId?: string,
 ): Promise<DebaterResponse> {
   let lastError: string | null = null;
 
@@ -74,12 +75,20 @@ export async function spawnDebater(
       : prompt;
 
     try {
-      const createResult = await client.session.create({ query: { directory } });
-      if (createResult.error) {
-        lastError = `create: ${JSON.stringify(createResult.error)}`;
-        continue;
+      // Persistent-session mode: the pool owns the session, we just prompt it.
+      // The debater's own previous statements live in the session history, so
+      // it genuinely remembers and revises its own argumentation across rounds.
+      let sessionId: string | undefined = poolSessionId;
+      let createdHere = false;
+      if (!sessionId) {
+        const createResult = await client.session.create({ query: { directory } });
+        if (createResult.error) {
+          lastError = `create: ${JSON.stringify(createResult.error)}`;
+          continue;
+        }
+        sessionId = createResult.data.id;
+        createdHere = true;
       }
-      const sessionId = createResult.data.id;
 
       try {
         const promptResult = await withTimeout(
@@ -130,9 +139,11 @@ export async function spawnDebater(
           error: null,
         };
       } finally {
-        // Always delete the session — even when prompt() throws (network
-        // timeout, 5xx, abort). Prevents orphaned sessions on the server.
-        await client.session.delete({ path: { id: sessionId } }).catch(() => {});
+        // Delete only sessions WE created. Pool sessions are owned by the
+        // loop (deleted there in a finally block after the debate ends).
+        if (createdHere) {
+          await client.session.delete({ path: { id: sessionId } }).catch(() => {});
+        }
       }
     } catch (e: unknown) {
       lastError = e instanceof Error ? e.message : String(e);
@@ -155,6 +166,7 @@ export async function runRound(
   client: OpencodeClient,
   config: RoundtableConfig,
   ctx: RoundContext,
+  sessionPool?: Record<string, string>,
 ): Promise<DebaterResponse[]> {
   const prompts = DEBATERS.map(def => ({
     def,
@@ -163,7 +175,7 @@ export async function runRound(
 
   return await Promise.all(
     prompts.map(({ def, prompt }) =>
-      spawnDebater(client, def, prompt, config, ctx.directory)
+      spawnDebater(client, def, prompt, config, ctx.directory, sessionPool?.[def.name])
     )
   );
 }

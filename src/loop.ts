@@ -21,6 +21,54 @@ export async function runLoop(
   const state = createDebateState(query, config);
   state.status = "deliberating";
 
+  // ── Persistent session pool ─────────────────────────────────────────────
+  // One session per debater + one for the critic, created ONCE and reused for
+  // every round. Each debater's own statements accumulate in ITS session, so
+  // it genuinely remembers and revises its own argumentation across rounds
+  // (no spawn/delete churn, no own-history re-injection into prompts). The
+  // critic's session accumulates all scoring rounds, letting the final
+  // synthesis skip the full-transcript re-injection. All sessions are deleted
+  // in the finally block below — on success, cancellation, or exception.
+  const sessionPool: Record<string, string> = {};
+  const ownedSessions: string[] = [];
+  try {
+    for (const def of DEBATERS) {
+      try {
+        const res = await client.session.create({ query: { directory } });
+        if (res.data?.id) {
+          sessionPool[def.name] = res.data.id;
+          ownedSessions.push(res.data.id);
+        }
+      } catch { /* pool creation is best-effort; degrade to per-round sessions */ }
+    }
+    try {
+      const res = await client.session.create({ query: { directory } });
+      if (res.data?.id) {
+        sessionPool["critic"] = res.data.id;
+        ownedSessions.push(res.data.id);
+      }
+    } catch { /* best-effort */ }
+  } catch { /* best-effort */ }
+
+  try {
+    return await runDebateWithPool(client, query, config, directory, state, sessionPool);
+  } finally {
+    // Always clean up pool sessions — the debate ended, was cancelled, or
+    // threw. Never leak sessions into the server.
+    for (const id of ownedSessions) {
+      await client.session.delete({ path: { id } }).catch(() => {});
+    }
+  }
+}
+
+async function runDebateWithPool(
+  client: OpencodeClient,
+  query: string,
+  config: RoundtableConfig,
+  directory: string,
+  state: DebateState,
+  sessionPool: Record<string, string>,
+): Promise<LoopResult> {
   while (state.status === "deliberating") {
     state.round++;
 
@@ -35,7 +83,7 @@ export async function runLoop(
         : null,
     };
 
-    const responses = await runRound(client, config, ctx);
+    const responses = await runRound(client, config, ctx, sessionPool);
     state.activeDebaterCount = responses.filter(r => !r.error).length;
 
     const roundRecord: RoundRecord = { round: state.round, responses };
@@ -65,7 +113,7 @@ export async function runLoop(
       consensusHistory: state.consensusHistory,
       responses,
       directory,
-    });
+    }, sessionPool["critic"]);
 
     roundRecord.critic = criticResult;
     state.consensusHistory.push(criticResult.consensusScore);
@@ -147,7 +195,7 @@ export async function runLoop(
     debaterModels,
     criticModel,
     directory,
-  });
+  }, sessionPool["critic"]);
 
   return { state, synthesis, elapsedMs: Date.now() - state.startTime };
 }

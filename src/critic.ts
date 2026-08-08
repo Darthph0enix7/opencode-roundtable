@@ -29,6 +29,7 @@ export async function scoreRound(
   client: OpencodeClient,
   config: RoundtableConfig,
   ctx: ScoreContext,
+  poolSessionId?: string,
 ): Promise<CriticOutput> {
   const { query, round, maxRounds, consensusHistory, responses, directory } = ctx;
 
@@ -50,12 +51,12 @@ export async function scoreRound(
     .replaceAll("{{roundTranscript}}", transcript);
 
   // Attempt 1: call critic normally
-  let output = await callCritic(client, config, prompt, directory);
+  let output = await callCritic(client, config, prompt, directory, poolSessionId);
   if (output) return output;
 
   // Attempt 2: retry with explicit format reminder (low-friction formatting hint)
   const retryPrompt = `${prompt}\n\n---\nREMINDER: Respond with VALID JSON ONLY. No markdown fences, no prose. Schema: { "consensusScore": number, "qualityScore": number, "continueDecision": "STOP" | "CONTINUE", "reasonIfStop": string | null, "runningBrief": string }`;
-  output = await callCritic(client, config, retryPrompt, directory);
+  output = await callCritic(client, config, retryPrompt, directory, poolSessionId);
   if (output) return output;
 
   // Fall back to heuristic
@@ -69,11 +70,20 @@ async function callCritic(
   config: RoundtableConfig,
   prompt: string,
   directory: string,
+  poolSessionId?: string,
 ): Promise<CriticOutput | null> {
   try {
-    const createResult = await client.session.create({ query: { directory } });
-    if (createResult.error) return null;
-    const sessionId = createResult.data.id;
+    // Persistent critic session: reuse the pool session when available.
+    // Its history accumulates every scoring round, so the final synthesis
+    // can reference the debate without a full transcript re-injection.
+    let sessionId: string | undefined = poolSessionId;
+    let createdHere = false;
+    if (!sessionId) {
+      const createResult = await client.session.create({ query: { directory } });
+      if (createResult.error) return null;
+      sessionId = createResult.data.id;
+      createdHere = true;
+    }
 
     try {
       const promptResult = await withTimeout(
@@ -108,7 +118,9 @@ async function callCritic(
         heuristicFallback: false,
       };
     } finally {
-      await client.session.delete({ path: { id: sessionId } }).catch(() => {});
+      if (createdHere) {
+        await client.session.delete({ path: { id: sessionId } }).catch(() => {});
+      }
     }
   } catch {
     return null;
@@ -182,6 +194,7 @@ export async function synthesize(
   client: OpencodeClient,
   config: RoundtableConfig,
   ctx: SynthesisContext,
+  poolSessionId?: string,
 ): Promise<string> {
   const prompt = CRITIC_SYNTHESIS_PROMPT
     .replaceAll("{{stopReason}}", ctx.stopReason)
@@ -192,9 +205,14 @@ export async function synthesize(
     .replaceAll("{{fullTranscript}}", ctx.fullTranscript);
 
   try {
-    const createResult = await client.session.create({ query: { directory: ctx.directory } });
-    if (createResult.error) return `## Council Decision\n\nCritic synthesis failed: session creation error.\n\n${ctx.fullTranscript}`;
-    const sessionId = createResult.data.id;
+    let sessionId: string | undefined = poolSessionId;
+    let createdHere = false;
+    if (!sessionId) {
+      const createResult = await client.session.create({ query: { directory: ctx.directory } });
+      if (createResult.error) return `## Council Decision\n\nCritic synthesis failed: session creation error.\n\n${ctx.fullTranscript}`;
+      sessionId = createResult.data.id;
+      createdHere = true;
+    }
 
     try {
       const promptResult = await withTimeout(
@@ -222,7 +240,9 @@ export async function synthesize(
         .map((p: { text?: string }) => p.text ?? "")
         .join("");
     } finally {
-      await client.session.delete({ path: { id: sessionId } }).catch(() => {});
+      if (createdHere) {
+        await client.session.delete({ path: { id: sessionId } }).catch(() => {});
+      }
     }
   } catch (e) {
     return `## Council Decision\n\nCritic synthesis failed: ${e instanceof Error ? e.message : String(e)}.\n\n${ctx.fullTranscript}`;
