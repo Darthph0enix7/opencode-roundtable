@@ -18,6 +18,8 @@ import {
   CRITIC_SYSTEM,
 } from "./prompts.js";
 import { handleRoundtable } from "./roundtable.js";
+import { loadChorusConfig, CHORUS_ROLES, CHORUS_CURATOR } from "./chorus/types.js";
+import { handleChorus } from "./chorus/chorus.js";
 import { z } from "zod";
 
 /// Tool permissions for debate-research agents.
@@ -62,6 +64,8 @@ async function server(input: PluginInput, options?: PluginOptions) {
 
   const debaterTools = config.enableDebaterTools ? RESEARCH_TOOLS : { task: false };
   const criticTools  = config.enableCriticTools  ? RESEARCH_TOOLS : { task: false };
+  const chorusConfig = loadChorusConfig(options ?? {});
+  const chorusTools = chorusConfig.enableChorusTools ? RESEARCH_TOOLS : { task: false };
 
   // NOTE: the round-limit rule ({{maxRoundsRule}}) is deliberately NOT
   // embedded here — the agent prompt is static per plugin load, but the
@@ -91,6 +95,25 @@ async function server(input: PluginInput, options?: PluginOptions) {
     },
   };
 
+  const chorusTool: ToolDefinition = {
+    description: `Run a constructive BRAINSTORMING session (Chorus) on a topic. ${CHORUS_ROLES.length} creative lenses (${CHORUS_ROLES.map((r) => r.label).join(", ")}) build on each other's ideas across rounds; a Curator dedupes, groups themes, spots gems, and detects when idea generation plateaus. Returns an idea harvest (themes, gems, buildable-now vs moonshot, open questions) — use when the user wants to EXPAND a vague vision into concrete feature options, not to decide between options.`,
+    args: {
+      query: z.string().describe("The topic or seed idea to brainstorm. A vague vision is fine — that is the point."),
+      maxRounds: z.number().nullable().optional().describe(`Maximum rounds; null = unbounded (hidden safety cap). Default: ${chorusConfig.maxRounds === null ? "null (unbounded)" : chorusConfig.maxRounds}`),
+      hideLimit: z.boolean().optional().describe("Hide the round limit from all participants"),
+      debug: z.boolean().optional().describe("Include full session state in output"),
+    },
+    async execute(args: Record<string, unknown>, context: unknown) {
+      const toolCtx = context as { sessionID?: string; abort?: AbortSignal };
+      return handleChorus(client, chorusConfig, {
+        query: args.query as string,
+        maxRounds: args.maxRounds as number | null | undefined,
+        hideLimit: args.hideLimit as boolean | undefined,
+        debug: args.debug as boolean | undefined,
+      }, directory, toolCtx?.abort);
+    },
+  };
+
   // Subagents only — the orchestrator (via OMO) calls the `roundtable` tool directly.
   // No primary agent needed.
   const allAgents: Record<string, unknown> = {};
@@ -109,6 +132,21 @@ async function server(input: PluginInput, options?: PluginOptions) {
     tools: criticTools,
   };
 
+  for (const role of CHORUS_ROLES) {
+    allAgents[role.name] = {
+      mode: "subagent",
+      description: role.epistemicRole,
+      prompt: role.systemPrompt,
+      tools: chorusTools,
+    };
+  }
+  allAgents[CHORUS_CURATOR.name] = {
+    mode: "subagent",
+    description: CHORUS_CURATOR.epistemicRole,
+    prompt: CHORUS_CURATOR.systemPrompt,
+    tools: chorusTools,
+  };
+
   return {
     // Expose `agent` at the Hooks top level — OpenChamber's Save Changes
     // handler iterates over this map to know which agents are editable.
@@ -118,6 +156,7 @@ async function server(input: PluginInput, options?: PluginOptions) {
 
     tool: {
       roundtable: roundtableTool,
+      chorus: chorusTool,
     },
 
     async config(cfg: Record<string, unknown>) {
