@@ -66,10 +66,12 @@ export async function spawnDebater(
   config: RoundtableConfig,
   directory: string,
   poolSessionId?: string,
+  abortSignal?: AbortSignal,
 ): Promise<DebaterResponse> {
   let lastError: string | null = null;
 
   for (let attempt = 0; attempt <= config.debaterRetries; attempt++) {
+    if (abortSignal?.aborted) break;  // user aborted — no more retries
     const effectivePrompt = attempt > 0
       ? `Previous response was invalid. ${prompt}\n\nReminder: respond in 50–500 words of plain prose.`
       : prompt;
@@ -108,6 +110,7 @@ export async function spawnDebater(
 
         if (promptResult.error) {
           lastError = `prompt: ${JSON.stringify(promptResult.error)}`;
+          if (/abort|cancel|interrupt/i.test(lastError)) break;  // never retry after an abort
           continue;
         }
 
@@ -116,6 +119,7 @@ export async function spawnDebater(
         if (info.error) {
           lastError = info.error.name ?? "message_error";
           if (info.error.name === "context_overflow") break;
+          if (/abort|cancel|interrupt/i.test(lastError)) break;  // never retry after an abort
           continue;
         }
 
@@ -170,6 +174,7 @@ export async function runRound(
   config: RoundtableConfig,
   ctx: RoundContext,
   sessionPool?: Record<string, string>,
+  abortSignal?: AbortSignal,
 ): Promise<DebaterResponse[]> {
   const prompts = DEBATERS.map(def => ({
     def,
@@ -178,7 +183,7 @@ export async function runRound(
 
   return await Promise.all(
     prompts.map(({ def, prompt }) =>
-      spawnDebater(client, def, prompt, config, ctx.directory, sessionPool?.[def.name])
+      spawnDebater(client, def, prompt, config, ctx.directory, sessionPool?.[def.name], abortSignal)
     )
   );
 }

@@ -124,7 +124,7 @@ async function runDebateWithPool(
         : null,
     };
 
-    const responses = await runRound(client, config, ctx, sessionPool);
+    const responses = await runRound(client, config, ctx, sessionPool, abortSignal);
     state.activeDebaterCount = responses.filter(r => !r.error).length;
 
     // User-abort detection: if most debaters were aborted (parent session
