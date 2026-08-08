@@ -30,7 +30,6 @@ export async function scoreRound(
   config: RoundtableConfig,
   ctx: ScoreContext,
   poolSessionId?: string,
-  parentID?: string,
 ): Promise<CriticOutput> {
   const { query, round, maxRounds, consensusHistory, responses, directory } = ctx;
 
@@ -52,12 +51,12 @@ export async function scoreRound(
     .replaceAll("{{roundTranscript}}", transcript);
 
   // Attempt 1: call critic normally
-  let output = await callCritic(client, config, prompt, directory, poolSessionId, parentID);
+  let output = await callCritic(client, config, prompt, directory, poolSessionId);
   if (output) return output;
 
   // Attempt 2: retry with explicit format reminder (low-friction formatting hint)
   const retryPrompt = `${prompt}\n\n---\nREMINDER: Respond with VALID JSON ONLY. No markdown fences, no prose. Schema: { "consensusScore": number, "qualityScore": number, "continueDecision": "STOP" | "CONTINUE", "reasonIfStop": string | null, "runningBrief": string }`;
-  output = await callCritic(client, config, retryPrompt, directory, poolSessionId, parentID);
+  output = await callCritic(client, config, retryPrompt, directory, poolSessionId);
   if (output) return output;
 
   // Fall back to heuristic
@@ -72,7 +71,6 @@ async function callCritic(
   prompt: string,
   directory: string,
   poolSessionId?: string,
-  parentID?: string,
 ): Promise<CriticOutput | null> {
   try {
     // Persistent critic session: reuse the pool session when available.
@@ -83,7 +81,7 @@ async function callCritic(
     if (!sessionId) {
       const createResult = await client.session.create({
         query: { directory },
-        body: parentID ? { parentID } : undefined,
+        
       });
       if (createResult.error) return null;
       sessionId = createResult.data.id;
@@ -200,7 +198,6 @@ export async function synthesize(
   config: RoundtableConfig,
   ctx: SynthesisContext,
   poolSessionId?: string,
-  parentID?: string,
 ): Promise<string> {
   const prompt = CRITIC_SYNTHESIS_PROMPT
     .replaceAll("{{stopReason}}", ctx.stopReason)
@@ -216,7 +213,7 @@ export async function synthesize(
     if (!sessionId) {
       const createResult = await client.session.create({
         query: { directory: ctx.directory },
-        body: parentID ? { parentID } : undefined,
+        
       });
       if (createResult.error) return `## Council Decision\n\nCritic synthesis failed: session creation error.\n\n${ctx.fullTranscript}`;
       sessionId = createResult.data.id;

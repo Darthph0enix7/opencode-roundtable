@@ -16,7 +16,7 @@ export async function handleRoundtable(
   config: RoundtableConfig,
   args: RoundtableArgs,
   directory: string,
-  parentID?: string,
+  abortSignal?: AbortSignal,
 ): Promise<string> {
   const effectiveConfig: RoundtableConfig = { ...config };
   if (args.maxRounds !== undefined) effectiveConfig.maxRounds = args.maxRounds;
@@ -27,7 +27,7 @@ export async function handleRoundtable(
   let output = startNote;
 
   try {
-    const result = await runLoop(client, args.query, effectiveConfig, directory, parentID);
+    const result = await runLoop(client, args.query, effectiveConfig, directory, abortSignal);
     output += formatResult(result, effectiveConfig.debug);
     return output;
   } catch (e: unknown) {

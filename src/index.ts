@@ -80,13 +80,14 @@ async function server(input: PluginInput, options?: PluginOptions) {
       // The parent session id (the session that invoked the tool) links the
       // debate sessions to their parent — native abort propagation cancels
       // them when the user aborts the parent session.
-      const parentID = (context as { sessionID?: string })?.sessionID;
+      const toolCtx = context as { sessionID?: string; abort?: AbortSignal };
+      const abortSignal = toolCtx?.abort;
       return handleRoundtable(client, config, {
         query: args.query as string,
         maxRounds: args.maxRounds as number | null | undefined,
         hideLimit: args.hideLimit as boolean | undefined,
         debug: args.debug as boolean | undefined,
-      }, directory, parentID);
+      }, directory, abortSignal);
     },
   };
 

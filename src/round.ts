@@ -66,7 +66,6 @@ export async function spawnDebater(
   config: RoundtableConfig,
   directory: string,
   poolSessionId?: string,
-  parentID?: string,
 ): Promise<DebaterResponse> {
   let lastError: string | null = null;
 
@@ -84,7 +83,7 @@ export async function spawnDebater(
       if (!sessionId) {
         const createResult = await client.session.create({
           query: { directory },
-          body: parentID ? { parentID } : undefined,
+          
         });
         if (createResult.error) {
           lastError = `create: ${JSON.stringify(createResult.error)}`;
@@ -171,7 +170,6 @@ export async function runRound(
   config: RoundtableConfig,
   ctx: RoundContext,
   sessionPool?: Record<string, string>,
-  parentID?: string,
 ): Promise<DebaterResponse[]> {
   const prompts = DEBATERS.map(def => ({
     def,
@@ -180,7 +178,7 @@ export async function runRound(
 
   return await Promise.all(
     prompts.map(({ def, prompt }) =>
-      spawnDebater(client, def, prompt, config, ctx.directory, sessionPool?.[def.name], parentID)
+      spawnDebater(client, def, prompt, config, ctx.directory, sessionPool?.[def.name])
     )
   );
 }
