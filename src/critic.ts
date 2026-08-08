@@ -51,6 +51,8 @@ async function deleteSessionSafely(
   }
 }
 
+let callCriticFailure: string | null = null;
+
 export async function scoreRound(
   client: OpencodeClient,
   config: RoundtableConfig,
@@ -58,6 +60,7 @@ export async function scoreRound(
   poolSessionId?: string,
 ): Promise<CriticOutput> {
   const { query, round, maxRounds, consensusHistory, responses, directory } = ctx;
+  callCriticFailure = null;
 
   const transcript = responses
     .map(r => `### ${r.label} (${r.error ? `⚠️ FAILED: ${r.error}` : "responded"})\n${r.text}`)
@@ -77,6 +80,7 @@ export async function scoreRound(
     .replaceAll("{{roundTranscript}}", transcript);
 
   // Attempt 1: call critic normally
+  let failure: string | null = null;
   let output = await callCritic(client, config, prompt, directory, poolSessionId);
   if (output) return output;
 
@@ -85,7 +89,12 @@ export async function scoreRound(
   output = await callCritic(client, config, retryPrompt, directory, poolSessionId);
   if (output) return output;
 
-  // Fall back to heuristic
+  // Fall back to heuristic — log WHY so a broken critic model is diagnosable
+  // instantly instead of the debate silently continuing on heuristic scores.
+  failure = callCriticFailure ?? "unknown (no error surfaced)";
+  console.error(
+    `[roundtable] CRITIC FAILED for round ${round} — heuristic fallback used. Reason: ${failure}. Model: ${config.criticModel ?? "(session default)"}`,
+  );
   return heuristicScore(ctx);
 }
 
@@ -127,16 +136,30 @@ async function callCritic(
         "critic scoring",
       );
 
-      if (promptResult.error) return null;
-      if (promptResult.data.info.error) return null;
+      if (promptResult.error) {
+        callCriticFailure = `provider error: ${JSON.stringify(promptResult.error).slice(0, 300)}`;
+        return null;
+      }
+      if (promptResult.data.info.error) {
+        callCriticFailure = `message error: ${promptResult.data.info.error.name ?? "unknown"}`;
+        return null;
+      }
 
       const text = promptResult.data.parts
         .filter((p: { type: string }) => p.type === "text")
         .map((p: { text?: string }) => p.text ?? "")
         .join("");
 
+      if (!text.trim()) {
+        callCriticFailure = "empty response (model returned no text)";
+        return null;
+      }
+
       const json = extractJSON(text);
-      if (!json) return null;
+      if (!json) {
+        callCriticFailure = `unparseable response: ${text.slice(0, 200)}`;
+        return null;
+      }
 
       return {
         consensusScore: clamp(Number(json.consensusScore) || 0, 0, 1),

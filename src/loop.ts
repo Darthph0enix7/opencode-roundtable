@@ -292,7 +292,7 @@ async function runDebateWithPool(
         .map(resp => `### ${resp.label} (Round ${r.round})${resp.error ? ` — ⚠️ FAILED: ${resp.error}` : ""}\n${resp.text}`)
         .join("\n\n");
       const criticNote = r.critic
-        ? `\n\n**Critic (Round ${r.round}):** consensus=${r.critic.consensusScore}, quality=${r.critic.qualityScore}, decision=${r.critic.continueDecision}\n${r.critic.runningBrief}`
+        ? `\n\n**Critic (Round ${r.round}):** consensus=${r.critic.consensusScore}, quality=${r.critic.qualityScore}, decision=${r.critic.continueDecision}${r.critic.heuristicFallback ? " ⚠️ (heuristic fallback — critic model failed)" : ""}\n${r.critic.runningBrief}`
         : "";
       return `\n## Round ${r.round}\n${responses}${criticNote}`;
     })
