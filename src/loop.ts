@@ -18,7 +18,6 @@ export async function runLoop(
   config: RoundtableConfig,
   directory: string,
   abortSignal?: AbortSignal,
-  abortedRef?: { value: boolean },
 ): Promise<LoopResult> {
   const state = createDebateState(query, config);
   state.status = "deliberating";
@@ -33,7 +32,11 @@ export async function runLoop(
   // in the finally block below — on success, cancellation, or exception.
   const sessionPool: Record<string, string> = {};
   const ownedSessions: string[] = [];
-  let aborted = false;
+  // Shared mutable abort flag — the SAME object is passed into the loop, so
+  // the handler's writes are visible to the loop's checks. (Previously a
+  // `{ value: aborted }` snapshot was passed — stale forever, so the loop
+  // kept starting rounds after an abort.)
+  const abortFlag = { value: false };
 
   // ── Abort handling ──────────────────────────────────────────────────────
   // When the user aborts the session that invoked the roundtable tool, the
@@ -42,7 +45,7 @@ export async function runLoop(
   // kills the current generation) and flag the loop to stop. The finally
   // block then deletes the sessions.
   const onAbort = (): void => {
-    aborted = true;
+    abortFlag.value = true;
     if (state.status === "deliberating") state.status = "aborted";
     for (const id of ownedSessions) {
       try { void client.session.abort({ path: { id } }).catch(() => {}); } catch { /* best-effort */ }
@@ -76,7 +79,7 @@ export async function runLoop(
   } catch { /* best-effort */ }
 
   try {
-    return await runDebateWithPool(client, query, config, directory, state, sessionPool, abortSignal, { value: aborted });
+    return await runDebateWithPool(client, query, config, directory, state, sessionPool, abortSignal, abortFlag);
   } finally {
     // Always clean up pool sessions — the debate ended, was cancelled, or
     // threw. Never leak sessions into the server.
@@ -94,7 +97,7 @@ async function runDebateWithPool(
   state: DebateState,
   sessionPool: Record<string, string>,
   abortSignal?: AbortSignal,
-  abortedRef?: { value: boolean },
+  abortFlag?: { value: boolean },
 ): Promise<LoopResult> {
   // Per-session context estimate (tokens). The old guard summed the
   // API-reported `tokens.input`, which is unreliable with persistent sessions
@@ -107,7 +110,7 @@ async function runDebateWithPool(
   const SESSION_CONTEXT_LIMIT = 60_000;
 
   while (state.status === "deliberating") {
-    if (abortedRef?.value) break;  // abort signal fired (e.g. parent session cancelled)
+    if (abortFlag?.value) break;  // abort signal fired (e.g. parent session cancelled)
     state.round++;
 
     const ctx = {
@@ -130,6 +133,23 @@ async function runDebateWithPool(
     const aborts = responses.filter(r =>
       r.error && /abort|cancel|interrupt/i.test(r.error)
     ).length;
+    if (abortFlag?.value) {
+      // Abort arrived while the debaters were answering — the responses may
+      // still have completed, but the debate is over. Record what we have and
+      // stop BEFORE critic scoring or another round.
+      state.status = "aborted";
+      const roundRecord: RoundRecord = { round: state.round, responses };
+      roundRecord.critic = {
+        consensusScore: 0,
+        qualityScore: 0,
+        continueDecision: "STOP",
+        reasonIfStop: "aborted_by_user",
+        runningBrief: "The debate was aborted by the user.",
+        heuristicFallback: true,
+      };
+      state.rounds.push(roundRecord);
+      break;
+    }
     if (aborts >= 2 || (aborts > 0 && responses.length - aborts < 2)) {
       state.status = "aborted";
       const roundRecord: RoundRecord = { round: state.round, responses };
@@ -164,7 +184,10 @@ async function runDebateWithPool(
       break;
     }
 
-    // Critic scoring
+    // Critic scoring — only while still deliberating (abort may have flipped status)
+    if (state.status !== "deliberating") {
+      break;
+    }
     const criticResult = await scoreRound(client, config, {
       query: state.query,
       round: state.round,
